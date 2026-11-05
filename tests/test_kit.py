@@ -21,12 +21,19 @@ def test_every_practice_has_an_indication():
 def test_every_practice_is_vendored():
     present, missing = kit.kit_skill_paths()
     assert missing == []
-    assert [name for name, _ in present] == list(kit.KIT_NAMES)
+    assert [practice.name for practice, _ in present] == list(kit.KIT_NAMES)
+
+
+def test_index_descriptions_fit_the_skill_index():
+    for practice in kit.KIT:
+        assert practice.index_description.strip(), practice.name
+        assert len(practice.index_description) <= kit.INDEX_DESCRIPTION_LIMIT, practice.name
 
 
 def test_vendored_frontmatter_name_matches_directory():
     present, _ = kit.kit_skill_paths()
-    for practice_name, skill_md in present:
+    for practice, skill_md in present:
+        practice_name = practice.name
         text = skill_md.read_text(encoding="utf-8")
         assert text.startswith("---\n"), f"{practice_name}: no YAML frontmatter"
         match = re.search(r"^name:\s*(\S+)\s*$", text, re.MULTILINE)

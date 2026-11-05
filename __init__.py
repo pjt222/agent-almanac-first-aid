@@ -32,8 +32,10 @@ def _handle_first_aid(raw_args: str, **kwargs) -> str:
 def register(ctx) -> None:
     """Called once by Hermes at plugin load."""
     present, missing = kit.kit_skill_paths()
-    for practice_name, skill_md in present:
-        ctx.register_skill(practice_name, skill_md)
+    for practice, skill_md in present:
+        # Without a description the <available_skills> row is a bare name; the agent has
+        # nothing to match a situation against.
+        ctx.register_skill(practice.name, skill_md, description=practice.index_description)
     if missing:
         logger.warning("%s: kit skills missing on disk: %s", kit.PLUGIN_NAME, ", ".join(missing))
 

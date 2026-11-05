@@ -23,6 +23,11 @@ def test_registers_every_kit_skill(registered_context):
         assert skill_md.is_file(), practice_name
 
 
+def test_registers_each_skill_with_its_index_description(registered_context):
+    for practice in kit.KIT:
+        assert registered_context.skill_descriptions[practice.name] == practice.index_description
+
+
 def test_registered_tools_and_hooks_match_manifest(registered_context):
     manifest_text = (sync_kit.REPO_ROOT / "plugin.yaml").read_text(encoding="utf-8")
     assert sorted(registered_context.tools) == sorted(_declared_list(manifest_text, "provides_tools"))

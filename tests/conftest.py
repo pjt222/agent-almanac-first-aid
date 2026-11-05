@@ -20,6 +20,7 @@ class RecordingContext:
 
     def __init__(self) -> None:
         self.skills: dict[str, Path] = {}
+        self.skill_descriptions: dict[str, str] = {}
         self.commands: dict[str, dict] = {}
         self.tools: dict[str, dict] = {}
         self.hooks: dict[str, list] = {}
@@ -28,6 +29,7 @@ class RecordingContext:
         assert ":" not in name, "Hermes adds the plugin namespace itself"
         assert name not in self.skills, f"skill {name} registered twice"
         self.skills[name] = Path(path)
+        self.skill_descriptions[name] = description
 
     def register_command(self, name, handler, description="", args_hint=""):
         assert name not in self.commands, f"command {name} registered twice"
