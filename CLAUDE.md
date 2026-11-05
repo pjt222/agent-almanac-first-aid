@@ -39,17 +39,23 @@ to `NousResearch/hermes-agent`, pinned to a full commit SHA of this repo.
 | `plugin.yaml` | Manifest: name, version, `requires_hermes`, declared tools/hooks, `config_schema` |
 | `__init__.py` | `register(ctx)`: wires skills, hooks, tool, slash command |
 | `skills/<name>/SKILL.md` | Vendored almanac practices (read-only copies) |
-| `skills/PROVENANCE.yaml` | Source repo, commit SHA and per-file hashes of the vendored kit |
-| `scripts/sync_kit.py` | Copies the kit from an agent-almanac checkout at a given commit |
-| `tests/` | pytest; pure logic is tested without importing Hermes |
+| `kit.py` | The kit table (practice → when to reach for it); no Hermes imports |
+| `skills/PROVENANCE.json` | Source repo, commit SHA and per-file sha256 of the vendored kit |
+| `skills/LICENSE-agent-almanac` | The almanac's MIT license, carried with the vendored skills |
+| `scripts/sync_kit.py` | Copies the kit from an agent-almanac checkout at a given commit; `--check` verifies |
+| `tests/` | pytest with a recording fake ctx; never imports Hermes. `tests/pytest.ini` lives there on purpose |
 
 ## Commands
 
 Run from the repo root.
 
 ```bash
-# Unit tests (no Hermes needed)
-uv run --no-project --with 'pytest>=8,<9' pytest -q
+# Unit tests (no Hermes needed). Pass `tests`: the ini lives in tests/ because the
+# repo root is the plugin package and must not be collected.
+uv run --no-project --with 'pytest>=8,<9' pytest tests
+
+# Vendored kit matches PROVENANCE.json
+python3 scripts/sync_kit.py --check
 
 # The checks catalog CI runs (needs the Hermes CLI)
 hermes plugins doctor . --ci

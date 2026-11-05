@@ -24,5 +24,5 @@ Everything runs locally: no network calls, no LLM calls, no credentials.
 
 ## License
 
-MIT. The bundled skills come from agent-almanac (MIT); see `skills/PROVENANCE.yaml` once the kit
-lands.
+MIT. The bundled skills are copied from agent-almanac (MIT) at the commit recorded in
+`skills/PROVENANCE.json`, with its license in `skills/LICENSE-agent-almanac`.
