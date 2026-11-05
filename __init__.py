@@ -42,6 +42,6 @@ def register(ctx) -> None:
     ctx.register_command(
         "first-aid",
         handler=_handle_first_aid,
-        description="Show the first-aid kit and this session's strain signals",
+        description="List the first-aid kit and when to reach for each practice",
         args_hint="[status|kit|help]",
     )
