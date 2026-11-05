@@ -1,0 +1,25 @@
+# Enforce LF line endings for text files regardless of platform.
+# The working copy lives on a WSL drvfs mount; Windows editors would otherwise
+# introduce CRLF that breaks shell scripts and SKILL.md frontmatter parsing.
+* text=auto eol=lf
+
+*.py text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.sh text eol=lf
+LICENSE* text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.mp4 binary
+*.webm binary
+*.pdf binary
+*.ico binary

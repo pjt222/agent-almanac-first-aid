@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.ruff_cache/
+
+# Committed bytecode is a catalog rejection (rule 16: no unscannable payloads);
+# the ignore above keeps it out, never force-add it.
+
+# Local continuation markers
+CONTINUE_HERE*.md
+
+# Local credentials. This plugin reads none; the rule is here so none ever lands.
+/.env
+/.env.*
+
+# Demo recordings are large; publish them on X, keep them out of git.
+/demo/recordings/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Temporary / backup
+*.tmp
+*.bak
