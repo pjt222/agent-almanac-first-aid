@@ -1,0 +1,14 @@
+name: agent-almanac-first-aid
+version: 0.1.0
+description: >-
+  A first-aid kit for AI agents: eight agent-almanac welfare practices bundled as
+  skills, and /first-aid to list them with when to reach for each.
+author: Philipp Thoss
+manifest_version: 2
+api_version: 1
+license: MIT
+homepage: https://github.com/pjt222/agent-almanac-first-aid
+tags: [welfare, skills, agent-almanac, first-aid]
+requires_hermes: ">=0.22.7"
+provides_tools: []
+provides_hooks: []

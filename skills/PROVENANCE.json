@@ -1,0 +1,25 @@
+{
+  "source": "https://github.com/pjt222/agent-almanac",
+  "commit": "8d6dddb077fd746d042d830188e62b12bdb46305",
+  "kit": [
+    "breathe",
+    "redirect",
+    "center",
+    "honesty-humility",
+    "attune",
+    "heal",
+    "meditate",
+    "rest"
+  ],
+  "files": {
+    "LICENSE-agent-almanac": "7dd87c12a1f01f17cdb288f58bee125f9e214e6a36d327c7e241ff481d93587a",
+    "attune/SKILL.md": "0dff5ab83db114d1e896d2903d522f307f911e37e9ca1d4519070f670fe0cd18",
+    "breathe/SKILL.md": "f57a29ecdae1e70bbf48d45886cbce88022c5763c7b0491133e16647b5163812",
+    "center/SKILL.md": "df0bd2a253a14ebe34725c9fd1d40e9b9d858cec4a7b38e9003fd8fb15fb2cec",
+    "heal/SKILL.md": "a07afc5a27fdfe4b6f75c430ec7284c3b4863d18e9faed585e53a258ad7ae47c",
+    "honesty-humility/SKILL.md": "6c7ab6edb082ac017f0b98aef2c132c454f4b7fa2728ed7580106c1a91607d53",
+    "meditate/SKILL.md": "62fe7e03e39e764ea6bf24e0eafcb705be3dd53df2c37841acd39ebe39743df8",
+    "redirect/SKILL.md": "10e7eb5b8210e57dd4017cce0202b21f5e7acfabf53c15e61c43218396580715",
+    "rest/SKILL.md": "4327d183fd28362956e930324256623386d6d4a41e29ada1b4c0cdb91aede3bb"
+  }
+}
