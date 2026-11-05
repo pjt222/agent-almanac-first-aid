@@ -21,17 +21,18 @@ class Practice:
     reach_for_it_when: str
 
 
-# Ordered from the lightest intervention to the fullest. The indications paraphrase
-# each skill's own "Use when ..." description at the pinned almanac commit.
+# Display order only; no ranking is implied. Each indication condenses the "Use when ..."
+# clause of that skill's own description at the pinned almanac commit, adding nothing the
+# skill does not say. Keep it that way: the triage notes will rely on these mappings.
 KIT: tuple[Practice, ...] = (
-    Practice("breathe", "a step just failed: one deliberate pause before the next action"),
-    Practice("redirect", "the planned approach stopped working: failures cascade or the same call repeats"),
-    Practice("center", "context shifted under you: after compaction or a sudden change of task"),
-    Practice("honesty-humility", "before reporting a result after a troubled stretch"),
-    Practice("attune", "communication with the person feels mismatched, or feedback surprised you"),
-    Practice("heal", "errors keep chaining and earlier assumptions may have gone stale"),
-    Practice("meditate", "moving between unrelated tasks, or reasoning feels scattered"),
-    Practice("rest", "every fix feels like more activity, and stopping is the better move"),
+    Practice("breathe", "between two actions: one deliberate pause to check alignment before the next step"),
+    Practice("redirect", "tool failures cascade, instructions conflict, or scope pressure builds"),
+    Practice("center", "after a sudden context shift or tool failure, or before sustained focused work"),
+    Practice("honesty-humility", "before presenting a conclusion, or when knowledge is partial or inferred"),
+    Practice("attune", "communication feels mismatched, or feedback was unexpected"),
+    Practice("heal", "after a chain of errors suggesting drift, or when earlier assumptions may be stale"),
+    Practice("meditate", "between unrelated tasks, or when reasoning feels scattered or assumption-driven"),
+    Practice("rest", "when even the self-care practices feel like more activity, or after sustained intensive work"),
 )
 
 KIT_NAMES: tuple[str, ...] = tuple(practice.name for practice in KIT)

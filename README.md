@@ -12,8 +12,8 @@ agent decides whether to use it. A logbook records what happened, and `/first-ai
 
 ## Planned v1
 
-- **Kit:** eight almanac practices, bundled as namespaced skills (`breathe`, `center`, `redirect`,
-  `heal`, `rest`, `honesty-humility`, `attune`, `meditate`).
+- **Kit:** eight almanac practices, bundled as namespaced skills (`breathe`, `redirect`, `center`,
+  `honesty-humility`, `attune`, `heal`, `meditate`, `rest`).
 - **Triage:** per-session signals from tool results and compaction events.
 - **First response:** one short, non-blocking note when a signal crosses its threshold, with a
   cooldown.
