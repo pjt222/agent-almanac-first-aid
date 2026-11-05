@@ -77,5 +77,6 @@ def render_kit() -> str:
     for practice in KIT:
         lines.append(f"  {practice.name:<17} {practice.reach_for_it_when}")
     lines.append("")
-    lines.append(f"Load one with skill_view(\"{qualified_name('breathe')}\").")
+    # Hermes turns every plugin skill into a slash command named after its qualified name.
+    lines.append(f"Hand one to the agent with /{qualified_name('<practice>')}, e.g. /{qualified_name('breathe')}")
     return "\n".join(lines)

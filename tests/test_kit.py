@@ -55,3 +55,9 @@ def test_kit_listing_names_every_practice():
     listing = kit.render_kit()
     for practice_name in kit.KIT_NAMES:
         assert practice_name in listing
+
+
+def test_kit_listing_points_users_at_slash_commands_not_tool_calls():
+    listing = kit.render_kit()
+    assert "/agent-almanac-first-aid:breathe" in listing
+    assert "skill_view" not in listing
