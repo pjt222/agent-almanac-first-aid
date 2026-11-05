@@ -6,8 +6,19 @@ script reads blobs with `git show <commit>:<path>`, so it never touches the
 almanac checkout's working tree, index or HEAD.
 
     python3 scripts/sync_kit.py --almanac ../agent-almanac --commit <sha>
-    python3 scripts/sync_kit.py --check     # verify skills/ against PROVENANCE.json
+    python3 scripts/sync_kit.py --check                         # skills/ vs PROVENANCE.json
+    python3 scripts/sync_kit.py --verify-source ../agent-almanac  # bytes vs the pinned commit
 
+--check proves skills/ holds exactly the files PROVENANCE.json lists, unchanged. It
+cannot prove where they came from: a hash recorded in the same commit only shows the
+file was not changed after it. --verify-source closes that gap by re-reading every file
+from an agent-almanac checkout (CI fetches the public repo at the pinned commit).
+
+Only single-file skills (a lone SKILL.md) are vendored. A kit skill that gains
+references/, scripts/ or other files at the almanac makes sync refuse it, because Hermes
+serves such files to the model and each one would need its own review.
+
+Maintainer tool, run by hand. The plugin never imports or runs it.
 Run from the repository root.
 """
 
@@ -82,12 +93,19 @@ def sync(almanac_dir: Path, commit: str) -> dict:
     return provenance
 
 
-def check() -> list[str]:
-    """Return a list of problems; empty means skills/ matches PROVENANCE.json and kit.KIT."""
+def _load_provenance(skills_dir: Path) -> dict | None:
+    provenance_file = skills_dir / PROVENANCE_FILE.name
+    if not provenance_file.is_file():
+        return None
+    return json.loads(provenance_file.read_text(encoding="utf-8"))
+
+
+def check(skills_dir: Path = SKILLS_DIR) -> list[str]:
+    """Return a list of problems; empty means skills/ holds exactly the listed files, unchanged."""
     problems: list[str] = []
-    if not PROVENANCE_FILE.is_file():
-        return [f"missing {PROVENANCE_FILE.relative_to(REPO_ROOT)}"]
-    provenance = json.loads(PROVENANCE_FILE.read_text(encoding="utf-8"))
+    provenance = _load_provenance(skills_dir)
+    if provenance is None:
+        return [f"missing skills/{PROVENANCE_FILE.name}"]
 
     if provenance.get("kit") != list(kit.KIT_NAMES):
         problems.append(f"PROVENANCE kit {provenance.get('kit')} != kit.KIT_NAMES {list(kit.KIT_NAMES)}")
@@ -101,17 +119,39 @@ def check() -> list[str]:
         problems.append(f"PROVENANCE files differ from the kit: {sorted(recorded_files ^ expected_files)}")
 
     for relative_path, recorded_hash in provenance.get("files", {}).items():
-        file_on_disk = SKILLS_DIR / relative_path
+        file_on_disk = skills_dir / relative_path
         if not file_on_disk.is_file():
             problems.append(f"missing skills/{relative_path}")
         elif _sha256(file_on_disk.read_bytes()) != recorded_hash:
             problems.append(f"skills/{relative_path} differs from the vendored copy (hash mismatch)")
 
-    stray_dirs = sorted(
-        child.name for child in SKILLS_DIR.iterdir() if child.is_dir() and child.name not in kit.KIT_NAMES
-    )
-    if stray_dirs:
-        problems.append(f"skills/ holds directories outside the kit: {stray_dirs}")
+    # Every file under skills/ must be accounted for: Hermes serves a plugin skill's
+    # references/, scripts/, templates/ and assets/ files to the model.
+    allowed_files = recorded_files | {PROVENANCE_FILE.name}
+    for file_on_disk in sorted(skills_dir.rglob("*")):
+        relative_path = file_on_disk.relative_to(skills_dir).as_posix()
+        if (file_on_disk.is_file() or file_on_disk.is_symlink()) and relative_path not in allowed_files:
+            problems.append(f"skills/{relative_path} is not listed in {PROVENANCE_FILE.name}")
+    return problems
+
+
+def verify_source(almanac_dir: Path, skills_dir: Path = SKILLS_DIR) -> list[str]:
+    """Re-read every vendored file from `almanac_dir` at the recorded commit and compare bytes."""
+    provenance = _load_provenance(skills_dir)
+    if provenance is None:
+        return [f"missing skills/{PROVENANCE_FILE.name}"]
+    commit = provenance["commit"]
+    problems: list[str] = []
+    for relative_path in provenance.get("files", {}):
+        source_path = "LICENSE" if relative_path == LICENSE_COPY_NAME else f"skills/{relative_path}"
+        try:
+            source_bytes = _git(almanac_dir, "show", f"{commit}:{source_path}")
+        except subprocess.CalledProcessError as error:
+            problems.append(f"{source_path} unreadable at {commit[:12]}: {error.stderr.decode().strip()}")
+            continue
+        file_on_disk = skills_dir / relative_path
+        if not file_on_disk.is_file() or file_on_disk.read_bytes() != source_bytes:
+            problems.append(f"skills/{relative_path} does not match {source_path} at {commit[:12]}")
     return problems
 
 
@@ -120,14 +160,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--almanac", type=Path, help="path to an agent-almanac git checkout")
     parser.add_argument("--commit", help="almanac commit to vendor from (any rev; recorded as full SHA)")
     parser.add_argument("--check", action="store_true", help="verify skills/ against PROVENANCE.json")
+    parser.add_argument("--verify-source", type=Path, metavar="ALMANAC",
+                        help="compare skills/ byte for byte with an agent-almanac checkout at the pinned commit")
     args = parser.parse_args(argv)
 
-    if args.check:
+    if args.check or args.verify_source:
         problems = check()
+        if args.verify_source:
+            problems += verify_source(args.verify_source)
         for problem in problems:
             print(f"FAIL {problem}", file=sys.stderr)
         if not problems:
-            print(f"OK kit matches PROVENANCE.json ({len(kit.KIT_NAMES)} skills)")
+            source_note = " and its source commit" if args.verify_source else ""
+            print(f"OK kit matches PROVENANCE.json{source_note} ({len(kit.KIT_NAMES)} skills)")
         return 1 if problems else 0
 
     if not (args.almanac and args.commit):

@@ -32,5 +32,11 @@ jobs:
       - name: Unit tests
         run: python -m pytest tests
 
-      - name: Vendored kit matches PROVENANCE.json
-        run: python scripts/sync_kit.py --check
+      - name: Fetch agent-almanac at the pinned commit
+        run: |
+          almanac_commit=$(python -c 'import json; print(json.load(open("skills/PROVENANCE.json"))["commit"])')
+          git init -q "$RUNNER_TEMP/agent-almanac"
+          git -C "$RUNNER_TEMP/agent-almanac" fetch -q --depth 1 https://github.com/pjt222/agent-almanac.git "$almanac_commit"
+
+      - name: Vendored kit matches PROVENANCE.json and re-derives from its source
+        run: python scripts/sync_kit.py --verify-source "$RUNNER_TEMP/agent-almanac"
