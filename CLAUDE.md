@@ -28,7 +28,7 @@ to `NousResearch/hermes-agent`, pinned to a full commit SHA of this repo.
   validation.
 - **No self-updating, no runtime fetch.** The kit's skills are vendored at a pinned agent-almanac
   commit by `scripts/sync_kit.py` (dev time only), which records the source SHA.
-- **No committed bytecode or binaries** (catalog rule 16).
+- **No committed bytecode or binaries** (catalog rule 17).
 - **This repo becomes public.** Do not name or describe the author's unannounced projects in any
   file, commit message, PR or issue here.
 

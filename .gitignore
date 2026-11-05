@@ -5,7 +5,7 @@ __pycache__/
 .venv/
 .ruff_cache/
 
-# Committed bytecode is a catalog rejection (rule 16: no unscannable payloads);
+# Committed bytecode is a catalog rejection (rule 17: no unscannable payloads);
 # the ignore above keeps it out, never force-add it.
 
 # Local continuation markers
