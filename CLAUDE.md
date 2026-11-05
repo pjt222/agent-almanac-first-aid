@@ -9,11 +9,26 @@ descriptions, and `/first-aid` listing the kit. **Planned:** triage of observabl
 practice, a local logbook tool, and a `/first-aid` session report. Keep README.md honest about
 which is which: the README at the pinned SHA becomes the catalog page.
 
-**Open design question (PR #1 review):** `pre_llm_call` runs once per user turn, before the
-tool loop, so a note about a failure streak arrives only on the next user message (never in a
-one-shot cron run). `transform_tool_result` is the in-loop channel, but the first returned
-string replaces the tool result. Hermes core's `tool_loop_guardrails` already warns on repeated
-and failing calls in-loop. Settle the delivery channel with the user before building triage.
+**Delivery design (decided by the user 2026-11-05, after the PR #1 review).** Hermes core's
+`tool_loop_guardrails` already *detects* repeated and failing calls in-loop and warns; this
+plugin's job is the *prescription*: the matching practice at a useful moment, plus the logbook.
+
+- **In the moment, for tool-failure streaks and repeated calls:** `transform_tool_result`. On a
+  threshold crossing, return the original result unchanged with one first-aid line appended;
+  otherwise return `None`. Hermes uses the first string any plugin returns
+  (`model_tools._apply_transform_tool_result_hook`), so returning a string on every call would
+  suppress other plugins' transforms: return one only on the rare crossing, and disclose both
+  the output change and that precedence. Ignore failures of the tools core treats as
+  failure-tolerant (`FAILURE_TOLERANT_TOOL_NAMES` in `agent/tool_guardrails.py`: terminal,
+  execute_code, process_manage, process, browser_navigate, web_extract), or every red test run
+  would trigger a note.
+- **After the fact, for compaction:** `post_compaction` records the event; the next
+  `pre_llm_call` delivers the note. Turn-start compaction runs before `pre_llm_call`, so that
+  note lands the same turn; mid-loop compaction waits for the next user message.
+- **Kit:** all eight practices stay. Notes name only practices with an observable trigger
+  (breathe, redirect, center, heal); attune, honesty-humility, meditate and rest stay reachable
+  through the skill index and their slash commands.
+- **Demo:** the failure streak uses a non-tolerant tool (e.g. `read_file` on a missing path).
 
 Built for the Nous Research Hermes Agent Plugin Hackathon (submissions close
 2026-11-11, 17:00 EST). The entry is a PR adding `plugin-catalog/agent-almanac-first-aid.yaml`
