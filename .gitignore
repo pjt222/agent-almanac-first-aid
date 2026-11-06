@@ -18,6 +18,9 @@ CONTINUE_HERE*.md
 # Demo recordings are large; publish them on X, keep them out of git.
 /demo/recordings/
 
+# Session design notes and research digests: local working material, never shipped.
+/notes/
+
 # Editor / OS
 .vscode/
 .idea/
