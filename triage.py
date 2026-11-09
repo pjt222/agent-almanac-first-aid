@@ -184,6 +184,22 @@ def is_untrusted_tool(tool_name: str) -> bool:
     return bool(tool_name) and (tool_name in UNTRUSTED_TOOL_NAMES or tool_name.startswith(UNTRUSTED_TOOL_PREFIXES))
 
 
+# --- Mirror of agent/tool_guardrails.py _is_non_interactive_platform (v0.22.7) -----------
+
+# _ATTENDED_PLATFORMS: core switches its hard stops on by default for every other non-empty
+# platform (messaging gateway, cron). A first-aid note in a tool result restarts core's
+# identical-call and identical-cycle counts, which would delay those halts, so in such runs the
+# note waits for the next user message instead (user decision 2026-11-09, catalog rule 12).
+ATTENDED_PLATFORMS = frozenset({"cli", "tui", "desktop", "acp", "subagent", "api_server"})
+
+
+def is_unattended_platform(platform: Any) -> bool:
+    """_is_non_interactive_platform: a gateway or cron run, where hard stops default on."""
+    if not isinstance(platform, str) or not platform.strip():
+        return False
+    return platform.strip().lower() not in ATTENDED_PLATFORMS
+
+
 # --- Mirror of agent/display.py _detect_tool_failure (v0.22.7) --------------------------
 
 def detect_failure(tool_name: str, result: Any) -> bool:
@@ -440,6 +456,8 @@ class Triage:
         self.cooldowns = cooldowns if cooldowns is not None else Cooldowns(config.cooldown_seconds, clock)
         self._lock = threading.Lock()
         self._turns: OrderedDict[tuple[str, str], _TurnState] = OrderedDict()
+        # Sessions whose platform is unattended, learned from pre_llm_call before any tool call.
+        self._unattended: OrderedDict[str, bool] = OrderedDict()
 
     def observe(self, *, tool_name: str, args: Any, result: Any, session_id: str, turn_id: str,
                 tool_call_id: str = "") -> Optional[Crossing]:
@@ -481,6 +499,18 @@ class Triage:
             for key in [key for key in self._turns if key[0] == old_session_id]:
                 state = self._turns.pop(key)
                 self._turns.setdefault((new_session_id, key[1]), state)
+            if old_session_id in self._unattended:
+                self._unattended.setdefault(new_session_id, self._unattended.pop(old_session_id))
+
+    def note_platform(self, session_id: str, platform: Any) -> None:
+        """Remember whether a session runs unattended (see is_unattended_platform)."""
+        if not session_id:
+            return
+        with self._lock:
+            self._unattended[session_id] = is_unattended_platform(platform)
+            self._unattended.move_to_end(session_id)
+            while len(self._unattended) > _MAX_COOLDOWN_SESSIONS:
+                self._unattended.popitem(last=False)
 
     # -- counting (mirrors ToolCallGuardrailController.after_call) --
 
@@ -564,9 +594,10 @@ class Triage:
             return crossing("suppressed:notes-disabled")
         if self.cooldowns.active(session_id, signal):
             return crossing("suppressed:cooldown")
-        if is_untrusted_tool(tool_name):
-            # Not inside the untrusted-data wrapper: the note waits for the next user message.
-            # The cooldown is stamped only if and when it is delivered.
+        if is_untrusted_tool(tool_name) or self._unattended.get(session_id, False):
+            # Not inside the untrusted-data wrapper, and not in an unattended run, where it would
+            # delay core's hard stops: the note waits for the next user message. The cooldown
+            # is stamped only if and when it is delivered.
             turn.noted_tools.add(tool_name)
             return crossing(QUEUED_OUTCOME)
         if not isinstance(result, str):

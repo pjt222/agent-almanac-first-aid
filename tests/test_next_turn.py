@@ -29,9 +29,9 @@ def tool(hooks, result, tool_name="read_file", args=None, session_id="s-1", turn
         duration_ms=1, status="ok", error_type="", error_message="")
 
 
-def next_message(hooks, session_id="s-1"):
+def next_message(hooks, session_id="s-1", platform="cli"):
     return hooks["pre_llm_call"](session_id=session_id, task_id="", turn_id="t-2", user_message="next",
-                                 conversation_history=[], is_first_turn=False, model="m", platform="cli",
+                                 conversation_history=[], is_first_turn=False, model="m", platform=platform,
                                  parent_session_id="", sender_id="")
 
 
@@ -378,3 +378,32 @@ def test_several_compactions_are_one_event(hooks, report):
     compaction_lines = [line for line in report().splitlines() if "context compacted" in line]
     assert len(compaction_lines) == 2  # queued once, offered once
     assert all("slot-taken" not in line and "superseded" not in line for line in compaction_lines)
+
+
+# --- unattended runs: failure notes never go into the result ---------------------------
+
+@pytest.mark.parametrize("platform", ["telegram", "cron", "Discord "])
+def test_an_unattended_run_gets_failure_notes_with_the_next_message(hooks, report, platform):
+    assert next_message(hooks, platform=platform) is None  # the turn starts: platform learned
+    assert tool(hooks, NOT_FOUND) is None
+    assert tool(hooks, NOT_FOUND) is None  # the result stays as core will hash it
+    reply = next_message(hooks, platform=platform)
+    assert "Earlier, read_file failed 2 times with the same arguments." in reply["context"]
+    lines = report()
+    assert "read_file failed 2x with the same arguments -> breathe (queued for the next message)" in lines
+    assert "read_file failed 2x with the same arguments -> breathe (offered)" in lines
+
+
+@pytest.mark.parametrize("platform", ["cli", "tui", "subagent", "api_server", ""])
+def test_an_attended_or_unknown_platform_keeps_the_in_result_note(hooks, platform):
+    next_message(hooks, platform=platform)
+    tool(hooks, NOT_FOUND)
+    assert '"first_aid"' in tool(hooks, NOT_FOUND)
+
+
+def test_the_unattended_mark_follows_a_rotated_session(hooks):
+    next_message(hooks, session_id="old", platform="telegram")
+    compaction(hooks, session_id="new", old_session_id="old")
+    tool(hooks, NOT_FOUND, session_id="new")
+    assert tool(hooks, NOT_FOUND, session_id="new") is None
+

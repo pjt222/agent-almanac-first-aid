@@ -425,3 +425,21 @@ def test_repeats_are_reported_once_per_call_per_turn(triage, clock):
     assert reported == [("s-1", "read_file", 3)]
     observe(tracker, "read_file", {"path": "a"}, SUCCESS, turn="t-2")
     assert reported == [("s-1", "read_file", 3)]  # a new turn starts the count again
+
+
+@pytest.mark.parametrize("platform, expected", [
+    ("cli", False), ("TUI", False), (" desktop ", False), ("acp", False), ("subagent", False),
+    ("api_server", False), ("", False), ("   ", False), (None, False), ("telegram", True), ("cron", True),
+])
+def test_unattended_platforms_mirror_core(triage, platform, expected):
+    assert triage.is_unattended_platform(platform) is expected
+
+
+def test_the_platform_is_learned_again_every_turn(make, triage, clock):
+    tracker = make()
+    for turn, platform, expected in (("t-1", "cli", "offered"), ("t-2", "telegram", triage.QUEUED_OUTCOME),
+                                     ("t-3", "cli", "offered")):
+        clock.now += 301  # past the cooldown, so only the platform decides
+        tracker.note_platform("s-1", platform)
+        observe(tracker, "read_file", {"path": turn}, NOT_FOUND, turn=turn)
+        assert observe(tracker, "read_file", {"path": turn}, NOT_FOUND, turn=turn).outcome == expected

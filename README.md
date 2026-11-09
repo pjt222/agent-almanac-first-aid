@@ -2,8 +2,6 @@
 
 A first-aid kit for AI agents running in [Hermes Agent](https://github.com/NousResearch/hermes-agent).
 
-> **Status:** in development for the Hermes Agent Plugin Hackathon.
-
 The kit is eight practices from [agent-almanac](https://github.com/pjt222/agent-almanac)'s
 AI-welfare skills. Hermes core already detects tool loops and warns about them. This plugin adds
 the prescription: when a tool keeps failing, the failed result carries one short line naming the
@@ -17,8 +15,9 @@ matching practice and how to load it. The agent decides whether to use it.
 - **Slash commands.** Hermes makes each practice a command, so you can hand one to the agent
   directly: `/agent-almanac-first-aid:breathe`.
 - **Failure-streak notes.** First aid counts failed tool results the way Hermes core's loop
-  guardrail does. On the call where core first warns, it adds one line to that failed result
-  (for calls that run one after another; see the parallel-call caveat below):
+  guardrail does. On the call where core first warns, it can add one line to that failed result
+  (in attended runs such as the CLI, for calls that run one after another; the exceptions are
+  below):
 
   | Signal | Default threshold (core's) | Practice |
   |---|---|---|
@@ -41,13 +40,22 @@ matching practice and how to load it. The agent decides whether to use it.
   | The conversation context was compacted (summarized) | any compaction that rewrites it | `center` |
   | A tool returned the same successful result for the same call | 3rd time in one turn | `heal` |
   | A failure streak of a tool Hermes wraps as untrusted (`web_search`, `browser_*`, `mcp_*`; `web_extract` and `browser_navigate` are failure-tolerant and get none) | as for other tools | `breathe` or `redirect` |
+  | A failure streak in an unattended run (messaging gateway, cron) | as for other tools | `breathe` or `redirect` |
 
   Successful results themselves are never changed: core's repeat detection hashes them. Results
   of untrusted tools are not changed either: Hermes wraps them in a block that tells the model
   not to follow requests found inside it, so a note there would read like a prompt injection.
+  In unattended runs (every platform other than the CLI, TUI, Desktop, ACP, API server and
+  subagents; core switches its hard stops on by default there) no failure result is changed
+  once the session's platform is known, which is from the turn's start, so core's halts see
+  exactly what they would without first aid. A cron run is one message, so its failure notes
+  are logged but never delivered. If you turn core's unattended hard stops off
+  (`tool_loop_guardrails.non_interactive_hard_stop_enabled: false`), first aid still keeps its
+  notes out of results there.
   A run made of one message (`hermes chat -q`, cron, a delegated subagent, which runs under its
   own session id) has no next message, so these notes never arrive there, and a subagent's
-  events are logged under its own id, which the parent's `/first-aid` does not show. Tools whose output changes when repeated rarely trigger the repeat note:
+  events are logged under its own id, which the parent's `/first-aid` does not show. Tools
+  whose output changes when repeated rarely trigger the repeat note:
   `read_file` answers an unchanged re-read with a short stub, and `search_files` can list the
   same files in a different order.
 - **Logbook tool.** `first_aid_log` lets the agent record the practice it applied and how it
@@ -101,7 +109,9 @@ warnings off, set `notes_enabled: false` too.
 
 ## What it touches
 
-- **It changes failed tool results, rarely.** On a threshold crossing it returns the failed
+- **It changes failed tool results, at most once per streak** (and at most one note of each
+  kind per session per 300 s, configurable), and only in attended runs. On a threshold
+  crossing it returns the failed
   result with the note added: a JSON object is re-serialized with one extra key, text gets one
   appended line. The original content stays intact, apart from what re-serializing JSON
   normalizes (whitespace, escapes, duplicate keys, number formatting such as `1e3` to `1000.0`).
@@ -115,15 +125,19 @@ warnings off, set `notes_enabled: false` too.
   first string returned. First aid returns one only on a crossing; on that call it can override,
   or be overridden by, any other plugin that transforms the same result, for example the bundled
   `security-guidance` plugin on a failed `write_file` or `patch`. That contention is rare.
-- **Effect on core's stall notice and hard stops.** A first-aid note restarts core's
-  identical-call count, so in a streak of identical failures its stall notice appears from the
-  5th call instead of the 3rd; core's loop warnings are unchanged. With hard stops on (by
-  default in messaging-gateway and cron runs, off in the CLI, TUI, Desktop, ACP, API server and
-  subagent runs), core halts right after the 5th identical failure. With a note, the agent gets
-  one more model request instead: if its 6th call is identical, core's exact-arguments block
-  refuses it and the turn halts; if it changes the call, the turn goes on, and core still halts
-  after 8 failures of the same tool. Rate-limited results are never annotated.
-- **It adds to the next user message, rarely.** A next-message note is appended to the user's
+- **Effect on core's stall and cycle notices.** A note in a failed result restarts core's
+  identical-call and identical-cycle counts. In a streak of identical failures core's stall
+  notice then appears from the 5th call instead of the 3rd, and in a repeating loop such as
+  A, B, A, B its cycle notice comes three or more calls later, depending on the loop's length
+  and where the note falls in it; core's loop warnings are unchanged. This only
+  happens in attended runs, where core's hard stops are off by default. If you switch them on
+  there, a note also delays core's halts by one model request: after the 5th identical failure
+  an identical 6th call is refused and the turn halts, while a changed call goes on until core's
+  same-tool halt (a repeating loop's halt likewise comes one call later). In unattended runs,
+  where hard stops are on by default, first aid changes no failed result, so core's halts are
+  unaffected. Rate-limited results are never annotated.
+- **It adds to the next user message, at most one note at a time.** A next-message note is
+  appended to the user's
   message as context, never to the system prompt, so the prompt cache stays intact. Like any
   such context it stays in the transcript and is sent again with later requests until a
   compaction rewrites that message. After a compaction inside the agent's turn, the note arrives
@@ -134,7 +148,8 @@ warnings off, set `notes_enabled: false` too.
   (and any tool listed in `auxiliary.background_review.extra_tools`). So
   a failure streak there can put a note into that run and start the session's cooldown, it
   shows in `/first-aid` as if the main agent had it, and a repeat there can queue a note for
-  the user's next message.
+  the user's next message. In an unattended session such a failure streak is queued for the
+  user's next message too, where it reads as if the main agent had made those calls.
 - **A best-effort mirror.** The failure classifier and the counting rules are copied from Hermes
   v0.22.7, not imported (those modules are not a public plugin API). Failures that never reach
   `transform_tool_result`, such as timeouts, executor exceptions and tool-search bridge calls, are
@@ -158,8 +173,7 @@ warnings off, set `notes_enabled: false` too.
   event. Following one costs more: loading a practice adds its text (5.7 to 17.5 KB) to the
   conversation, and the agent may re-read what it is working on: in one live test after
   `/compress`, the agent loaded the 16.6 KB `center` practice and re-read three files before
-  answering the next question. Notes also follow a manual `/compress` (user decision
-  2026-11-09).
+  answering the next question. Notes also follow a manual `/compress`.
   The `first_aid_log` tool is a plugin tool, so Hermes's tool search (on by default) defers it.
   Measured with Hermes v0.22.7's own functions: where tool search is already on, as in a freshly
   created profile (Hermes defers several of its own tools), the tool adds one line of about 95

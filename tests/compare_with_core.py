@@ -135,6 +135,7 @@ def _run(argv) -> int:
         ("_FAILED_STATUSES", core_classification._FAILED_STATUSES),
         ("UNTRUSTED_TOOL_NAMES", core_dispatch._UNTRUSTED_TOOL_NAMES),
         ("UNTRUSTED_TOOL_PREFIXES", core_dispatch._UNTRUSTED_TOOL_PREFIXES),
+        ("ATTENDED_PLATFORMS", core_guard._ATTENDED_PLATFORMS),
         ("DEFAULT_EXACT_FAILURE_THRESHOLD", core_guard.ToolCallGuardrailConfig().exact_failure_warn_after),
         ("DEFAULT_SAME_TOOL_FAILURE_THRESHOLD", core_guard.ToolCallGuardrailConfig().same_tool_failure_warn_after),
         ("DEFAULT_REPEAT_THRESHOLD", core_guard.STALL_GUARD_IDENTICAL_CALL_THRESHOLD),
@@ -164,6 +165,10 @@ def _run(argv) -> int:
     for name in UNTRUSTED_PROBES:
         if triage.is_untrusted_tool(name) != core_dispatch._is_untrusted_tool(name):
             problems.append(f"is_untrusted_tool({name!r})")
+    for platform in ("cli", "TUI", " desktop ", "acp", "subagent", "api_server", "", "  ", None,
+                     "telegram", "cron", "discord", "web"):
+        if triage.is_unattended_platform(platform) != core_guard._is_non_interactive_platform(platform):
+            problems.append(f"is_unattended_platform({platform!r})")
     print(f"classifier: {compared} comparisons, {core_raised} inputs on which core itself raised")
 
     # 3. Random sequential call sequences: every counter after every call, every crossing.

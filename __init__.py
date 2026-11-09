@@ -53,9 +53,11 @@ class FirstAid:
             logger.debug("%s: post_compaction failed", kit.PLUGIN_NAME, exc_info=True)
         return None
 
-    def on_pre_llm_call(self, session_id: str = "", **kwargs: Any) -> Optional[dict]:
-        """Hand over the waiting note, if any. Never a block directive."""
+    def on_pre_llm_call(self, session_id: str = "", platform: str = "", **kwargs: Any) -> Optional[dict]:
+        """Note the session's platform (it fires before the turn's first tool call), then hand
+        over the waiting note, if any. Never a block directive."""
         try:
+            self.triage.note_platform(session_id, platform)
             note = self.next_turn.take(session_id)
         except Exception:
             logger.debug("%s: pre_llm_call failed", kit.PLUGIN_NAME, exc_info=True)
