@@ -116,9 +116,12 @@ section, so if you change core's thresholds, set these to match.
   message as context, never to the system prompt, so the prompt cache stays intact. Like any
   such context it stays in the transcript and is sent again with later requests until a
   compaction rewrites that message. After a compaction inside the agent's turn, the note arrives
-  with the next user message, not in the same turn. Background-review runs share the session id,
-  so a repeat they produce can queue a note for the next message. Hermes routes that bypass
-  `pre_llm_call` context, such as the Codex app-server route, may not deliver it.
+  with the next user message, not in the same turn. Hermes routes that bypass `pre_llm_call`
+  context, such as the Codex app-server route, may not deliver it.
+- **Background-review runs count as the session.** Hermes's background-review runs share the
+  user session's id, so their tool calls are counted with it: a streak there uses up that
+  session's cooldown, shows in `/first-aid` as if the main agent had it, and a repeat or an
+  untrusted tool's failure there can queue a note for the user's next message.
 - **A best-effort mirror.** The failure classifier and the counting rules are copied from Hermes
   v0.22.7, not imported (those modules are not a public plugin API). Failures that never reach
   `transform_tool_result`, such as timeouts, executor exceptions and tool-search bridge calls, are
