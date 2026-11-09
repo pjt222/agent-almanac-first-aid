@@ -2,13 +2,14 @@
 
 A first-aid kit for AI agents running in [Hermes Agent](https://github.com/NousResearch/hermes-agent).
 
-> **Status:** in development for the Hermes Agent Plugin Hackathon. This build bundles the kit and
-> the `/first-aid` command; automatic triage is not built yet.
+> **Status:** in development for the Hermes Agent Plugin Hackathon. This build bundles the kit,
+> notes failure streaks, and reports them in `/first-aid`. The logbook tool and the notes after
+> compaction are planned, not built.
 
 The kit is eight practices from [agent-almanac](https://github.com/pjt222/agent-almanac)'s
-AI-welfare skills. The aim of the finished plugin is to notice moments a plugin can observe, such
-as a run of failed tool calls, the same call repeated, or a context that had to be compacted, and
-offer the matching practice in a short note. The agent decides whether to use it.
+AI-welfare skills. Hermes core already detects tool loops and warns about them. This plugin adds
+the prescription: when a tool keeps failing, the failed result carries one short line naming the
+matching practice and how to load it. The agent decides whether to use it.
 
 ## What this build does
 
@@ -17,23 +18,95 @@ offer the matching practice in a short note. The agent decides whether to use it
   with a one-line "First aid: …" description, e.g. `agent-almanac-first-aid:breathe`.
 - **Slash commands.** Hermes makes each practice a command, so you can hand one to the agent
   directly: `/agent-almanac-first-aid:breathe`.
-- **`/first-aid`.** Lists the kit and when to reach for each practice.
+- **Failure-streak notes.** First aid counts failed tool results the way Hermes core's loop
+  guardrail does. On the call where core first warns, it adds one line to that failed result:
 
-## Planned
+  | Signal | Default threshold (core's) | Practice |
+  |---|---|---|
+  | The same tool fails with identical arguments | 2nd failure | `breathe` |
+  | One tool fails several times in a row | 3rd failure | `redirect` |
 
-- **Triage:** per-session signals from tool results and compaction events.
-- **First response:** one short, non-blocking note when a signal crosses its threshold, with a
-  cooldown.
-- **Logbook:** a tool the agent uses to record the practice it applied and the outcome.
-- **`/first-aid` report:** the session's signals, notes and logbook.
+  A JSON error gains a `first_aid` key, for example:
+
+  ```json
+  {"error": "File not found: notes.md", "first_aid": "read_file failed 2 times with the same arguments. The agent-almanac-first-aid plugin suggests the breathe practice: pause once and re-read the error before the next step. Load it with skill_view(\"agent-almanac-first-aid:breathe\")."}
+  ```
+
+  A plain-text error gains the same sentence on a new line starting with `[first aid]`.
+- **`/first-aid`.** Shows what first aid noticed in this session (time, tool, count, practice,
+  and whether the note was offered), then the kit. `/first-aid kit` shows the kit alone.
+
+### When it stays quiet
+
+Short notes, rarely. No note is added:
+
+- more than once per streak, or for a second signal of the same tool in one streak;
+- within 300 seconds of the same kind of note in the same session (configurable);
+- for tools whose failures are normal work, the ones core treats as failure-tolerant:
+  `terminal`, `execute_code`, `process`, `process_manage`, `browser_navigate`, `web_extract`;
+- for results core classifies as rate-limited, where a retry after the wait is the right move;
+- for results it cannot annotate cleanly: JSON that is not an object, an object that already has
+  a `first_aid` key, non-text results, or a note that would change how core classifies the result.
+
+Offered notes are recorded in the event log, and so are notes held back by the cooldown, the
+rate-limit rule, the settings or an unannotatable result, with the reason.
+
+## Settings
+
+Optional, in the profile's `config.yaml`:
+
+```yaml
+plugins:
+  entries:
+    agent-almanac-first-aid:
+      settings:
+        notes_enabled: true              # false: keep the event log and /first-aid, add no notes
+        exact_failure_threshold: 2       # identical-argument failures before a note
+        same_tool_failure_threshold: 3   # failures of one tool in a row before a note
+        cooldown_seconds: 300            # per session, per kind of note
+```
+
+The thresholds default to core's `tool_loop_guardrails` defaults. First aid cannot read that
+section, so if you change core's thresholds, set these to match.
 
 ## What it touches
 
-No network calls, no LLM calls, no credentials, no Python dependencies, no background processes.
-This build reads only its own files and writes nothing.
+- **It changes failed tool results, rarely.** On a threshold crossing it returns the failed
+  result with the note added: a JSON object is re-serialized with one extra key, text gets one
+  appended line. The original content stays intact. Successful results are never changed, and
+  nothing is ever blocked.
+- **It reads every tool result.** The hook sees each tool result and its arguments, in memory, to
+  classify the result and fingerprint the call (a sha256 of the arguments). It stores neither.
+- **First string wins.** Hermes calls `transform_tool_result` plugins in load order and keeps the
+  first string returned. First aid returns one only on a crossing; on that call it can override,
+  or be overridden by, any other plugin that transforms the same result, for example the bundled
+  `security-guidance` plugin on a failed `write_file` or `patch`. That contention is rare.
+- **Effect on core's stall notice.** A first-aid note restarts core's identical-call count, so in
+  a streak of identical failures its stall notice appears from the 5th call instead of the 3rd;
+  core's loop warnings are unchanged. With hard stops on and default thresholds, the run still
+  stops after the same five calls, by core's exact-arguments block. Rate-limited results are never
+  annotated.
+- **A best-effort mirror.** The failure classifier and the counting rules are copied from Hermes
+  v0.22.7, not imported (those modules are not a public plugin API). Failures that never reach
+  `transform_tool_result`, such as timeouts, executor exceptions and tool-search bridge calls, are
+  counted by core but not by first aid.
+- **Memory only.** The event log holds time, signal, tool name, count, practice and outcome per
+  session: never tool arguments or result bodies. It is bounded (200 events per session, 64
+  sessions), writes nothing to disk, and resets when Hermes restarts or reloads plugins. With
+  `dashboard.turn_isolation` on (Desktop/TUI, off by default), the agent turns run in another
+  process than slash commands, so `/first-aid` cannot see the events.
+- **Context.** The kit adds eight rows to the agent's skill index (descriptions under 60
+  characters each) and nine slash commands. A note is under 300 characters, once per streak.
+- No network calls, no LLM calls, no credentials, no Python dependencies, no background processes.
 
 `scripts/sync_kit.py` is a maintainer tool, run by hand to copy the kit from agent-almanac at a
 pinned commit. The plugin never imports or runs it, and nothing is fetched or updated at runtime.
+
+## Planned
+
+- **Logbook tool:** a tool the agent calls to record the practice it applied and the outcome,
+  shown in the `/first-aid` report.
+- **Notes after compaction and repeated successful calls:** delivered with the next user message.
 
 ## License
 
