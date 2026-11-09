@@ -406,3 +406,4 @@ def test_the_unattended_mark_follows_a_rotated_session(hooks):
     compaction(hooks, session_id="new", old_session_id="old")
     tool(hooks, NOT_FOUND, session_id="new")
     assert tool(hooks, NOT_FOUND, session_id="new") is None
+

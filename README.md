@@ -45,9 +45,13 @@ matching practice and how to load it. The agent decides whether to use it.
   Successful results themselves are never changed: core's repeat detection hashes them. Results
   of untrusted tools are not changed either: Hermes wraps them in a block that tells the model
   not to follow requests found inside it, so a note there would read like a prompt injection.
-  In unattended runs (every platform except the CLI, TUI, Desktop, ACP, API server and
-  subagents, which is where core switches its hard stops on by default) no failure result is
-  changed at all, so core's halts see exactly what they would without first aid.
+  In unattended runs (every platform other than the CLI, TUI, Desktop, ACP, API server and
+  subagents; core switches its hard stops on by default there) no failure result is changed
+  once the session's platform is known, which is from the turn's start, so core's halts see
+  exactly what they would without first aid. A cron run is one message, so its failure notes
+  are logged but never delivered. If you turn core's unattended hard stops off
+  (`tool_loop_guardrails.non_interactive_hard_stop_enabled: false`), first aid still keeps its
+  notes out of results there.
   A run made of one message (`hermes chat -q`, cron, a delegated subagent, which runs under its
   own session id) has no next message, so these notes never arrive there, and a subagent's
   events are logged under its own id, which the parent's `/first-aid` does not show. Tools
@@ -123,13 +127,15 @@ warnings off, set `notes_enabled: false` too.
   `security-guidance` plugin on a failed `write_file` or `patch`. That contention is rare.
 - **Effect on core's stall and cycle notices.** A note in a failed result restarts core's
   identical-call and identical-cycle counts. In a streak of identical failures core's stall
-  notice then appears from the 5th call instead of the 3rd, and in a repeating A, B, A, B loop
-  its cycle notice comes three calls later; core's loop warnings are unchanged. This only
+  notice then appears from the 5th call instead of the 3rd, and in a repeating loop such as
+  A, B, A, B its cycle notice comes three or more calls later, depending on the loop's length
+  and where the note falls in it; core's loop warnings are unchanged. This only
   happens in attended runs, where core's hard stops are off by default. If you switch them on
   there, a note also delays core's halts by one model request: after the 5th identical failure
   an identical 6th call is refused and the turn halts, while a changed call goes on until core's
-  same-tool halt. In unattended runs, where hard stops are on by default, first aid changes no
-  failed result, so core's halts are unaffected. Rate-limited results are never annotated.
+  same-tool halt (a repeating loop's halt likewise comes one call later). In unattended runs,
+  where hard stops are on by default, first aid changes no failed result, so core's halts are
+  unaffected. Rate-limited results are never annotated.
 - **It adds to the next user message, at most one note at a time.** A next-message note is
   appended to the user's
   message as context, never to the system prompt, so the prompt cache stays intact. Like any
@@ -142,7 +148,8 @@ warnings off, set `notes_enabled: false` too.
   (and any tool listed in `auxiliary.background_review.extra_tools`). So
   a failure streak there can put a note into that run and start the session's cooldown, it
   shows in `/first-aid` as if the main agent had it, and a repeat there can queue a note for
-  the user's next message.
+  the user's next message. In an unattended session such a failure streak is queued for the
+  user's next message too, where it reads as if the main agent had made those calls.
 - **A best-effort mirror.** The failure classifier and the counting rules are copied from Hermes
   v0.22.7, not imported (those modules are not a public plugin API). Failures that never reach
   `transform_tool_result`, such as timeouts, executor exceptions and tool-search bridge calls, are
