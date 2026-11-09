@@ -140,8 +140,11 @@ section, so if you change core's thresholds, set these to match.
   `dashboard.turn_isolation` on (Desktop/TUI, off by default), the agent turns run in another
   process than slash commands, so `/first-aid` cannot see the events.
 - **Context.** The kit adds eight rows to the agent's skill index (descriptions under 60
-  characters each) and nine slash commands. A note is under 300 characters, once per streak or
-  event.
+  characters each) and nine slash commands. A note is at most 300 characters, once per streak or
+  event. Following one costs more: loading a practice adds its text (5.7 to 17.5 KB) to the
+  conversation, and the agent may re-read what it is working on. In the live compaction test the
+  turn after `/compress` grew the context from about 18.6K to 26K tokens. Notes also follow a
+  manual `/compress` (user decision 2026-11-09).
   The `first_aid_log` tool is a plugin tool, so Hermes's tool search (on by default) defers it.
   Measured with Hermes v0.22.7's own functions: where tool search is already on, as in a freshly
   created profile (Hermes defers several of its own tools), the tool adds one line of about 95
