@@ -5,9 +5,9 @@ A Hermes Agent plugin: a first-aid kit for AI agents, built from
 
 **Built so far:** eight vendored practices registered as namespaced skills with index
 descriptions; failure-streak triage that adds one note to a failed tool result where core first
-warns; an in-memory event log; and `/first-aid` reporting the session's events and the kit.
-**Planned:** the agent-callable logbook tool, and next-turn notes after compaction and repeated
-successful calls. Keep README.md honest about which is which: the README at the pinned SHA
+warns; an in-memory event log; the agent-callable logbook tool `first_aid_log`; and
+`/first-aid` reporting the session's events and the kit. **Planned:** next-turn notes after
+compaction and repeated successful calls. Keep README.md honest about which is which: the README at the pinned SHA
 becomes the catalog page.
 
 **Delivery design (decided by the user 2026-11-05, after the PR #1 review).** Hermes core's
@@ -82,6 +82,7 @@ to `NousResearch/hermes-agent`, pinned to a full commit SHA of this repo.
 | `__init__.py` | `register(ctx)`: registers the kit skills, the `transform_tool_result` hook and `/first-aid` |
 | `triage.py` | Failure classification and counting mirrored from core, the note, the annotation; no Hermes imports |
 | `event_log.py` | Bounded in-memory per-session record of what first aid noticed; no Hermes imports |
+| `logbook_tool.py` | The `first_aid_log` schema and handler, writing into the event log; no Hermes imports |
 | `skills/<name>/SKILL.md` | Vendored almanac practices (read-only copies) |
 | `kit.py` | The kit table (practice → when to reach for it); no Hermes imports |
 | `skills/PROVENANCE.json` | Source repo, commit SHA and per-file sha256 of the vendored kit |

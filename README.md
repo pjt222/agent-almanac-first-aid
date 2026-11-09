@@ -3,8 +3,8 @@
 A first-aid kit for AI agents running in [Hermes Agent](https://github.com/NousResearch/hermes-agent).
 
 > **Status:** in development for the Hermes Agent Plugin Hackathon. This build bundles the kit,
-> notes failure streaks, and reports them in `/first-aid`. The logbook tool and the notes after
-> compaction are planned, not built.
+> notes failure streaks, gives the agent a logbook tool, and reports both in `/first-aid`. Notes
+> after compaction are planned, not built.
 
 The kit is eight practices from [agent-almanac](https://github.com/pjt222/agent-almanac)'s
 AI-welfare skills. Hermes core already detects tool loops and warns about them. This plugin adds
@@ -33,8 +33,11 @@ matching practice and how to load it. The agent decides whether to use it.
   ```
 
   A plain-text error gains the same sentence on a new line starting with `[first aid]`.
-- **`/first-aid`.** Shows what first aid noticed in this session (time, tool, count, practice,
-  and whether the note was offered), then the kit. `/first-aid kit` shows the kit alone.
+- **Logbook tool.** `first_aid_log` lets the agent record the practice it applied and how it
+  went (`helped`, `partly`, `no_change`), with an optional short note.
+- **`/first-aid`.** Shows this session's events in order: what first aid noticed (time, tool,
+  count, practice, and whether the note was offered) and what the agent logged. Then the kit.
+  `/first-aid kit` shows the kit alone.
 
 ### When it stays quiet
 
@@ -77,6 +80,7 @@ section, so if you change core's thresholds, set these to match.
   nothing is ever blocked.
 - **It reads every tool result.** The hook sees each tool result and its arguments, in memory, to
   classify the result and fingerprint the call (a sha256 of the arguments). It stores neither.
+  The logbook tool reads only its own arguments.
 - **First string wins.** Hermes calls `transform_tool_result` plugins in load order and keeps the
   first string returned. First aid returns one only on a crossing; on that call it can override,
   or be overridden by, any other plugin that transforms the same result, for example the bundled
@@ -91,12 +95,15 @@ section, so if you change core's thresholds, set these to match.
   `transform_tool_result`, such as timeouts, executor exceptions and tool-search bridge calls, are
   counted by core but not by first aid.
 - **Memory only.** The event log holds time, signal, tool name, count, practice and outcome per
-  session: never tool arguments or result bodies. It is bounded (200 events per session, 64
+  session, plus the logbook tool's short note (at most 160 characters, written by the agent).
+  It never holds tool arguments or result bodies. It is bounded (200 events per session, 64
   sessions), writes nothing to disk, and resets when Hermes restarts or reloads plugins. With
   `dashboard.turn_isolation` on (Desktop/TUI, off by default), the agent turns run in another
   process than slash commands, so `/first-aid` cannot see the events.
 - **Context.** The kit adds eight rows to the agent's skill index (descriptions under 60
   characters each) and nine slash commands. A note is under 300 characters, once per streak.
+  The `first_aid_log` schema, about 800 characters of JSON, is sent with every model request
+  while its toolset `first_aid` is enabled (on by default; `hermes tools` can switch it off).
 - No network calls, no LLM calls, no credentials, no Python dependencies, no background processes.
 
 `scripts/sync_kit.py` is a maintainer tool, run by hand to copy the kit from agent-almanac at a
@@ -104,8 +111,6 @@ pinned commit. The plugin never imports or runs it, and nothing is fetched or up
 
 ## Planned
 
-- **Logbook tool:** a tool the agent calls to record the practice it applied and the outcome,
-  shown in the `/first-aid` report.
 - **Notes after compaction and repeated successful calls:** delivered with the next user message.
 
 ## License

@@ -1,7 +1,8 @@
 """agent-almanac-first-aid: registration.
 
 Bundles the kit's skills, watches tool results for failure streaks (transform_tool_result),
-and answers /first-aid with this session's event log and the kit. plugin.yaml declares
+gives the agent a logbook tool (first_aid_log), and answers /first-aid with this session's
+event log and the kit. plugin.yaml declares
 exactly what register() adds, so the two stay in step.
 """
 
@@ -10,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from . import event_log, kit, triage
+from . import event_log, kit, logbook_tool, triage
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,11 @@ class FirstAid:
             return "First aid: nothing noticed in this session yet."
         lines = [f"First aid, this session ({len(events)} event{'s' if len(events) != 1 else ''}):"]
         for event in events:
+            if event.signal == logbook_tool.LOGBOOK_SIGNAL:
+                note = f": {event.note}" if event.note else ""
+                lines.append(f"  {event.time_utc}  logbook: applied {event.practice} -> "
+                             f"{event.outcome.replace('_', ' ')}{note}")
+                continue
             observed = _SIGNAL_TEXT.get(event.signal, "{tool}: " + event.signal).format(
                 tool=event.tool_name, count=event.count)
             outcome = event.outcome.replace("suppressed:", "not offered: ")
@@ -100,6 +106,14 @@ def register(ctx) -> None:
 
     first_aid = FirstAid(_read_config(ctx))
     ctx.register_hook("transform_tool_result", first_aid.on_transform_tool_result)
+    ctx.register_tool(
+        name=logbook_tool.TOOL_NAME,
+        toolset=logbook_tool.TOOLSET,
+        schema=logbook_tool.SCHEMA,
+        handler=logbook_tool.make_handler(first_aid.events),
+        description=logbook_tool.SCHEMA["description"],
+        emoji="\N{ADHESIVE BANDAGE}",
+    )
     ctx.register_command(
         "first-aid",
         handler=first_aid.handle_command,

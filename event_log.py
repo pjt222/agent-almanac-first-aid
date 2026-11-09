@@ -1,7 +1,8 @@
 """The event log: first aid's own in-memory record of what it noticed and offered.
 
 Per session, a bounded list of events (time, signal, tool name, count, practice,
-outcome). It never stores tool arguments or result bodies. It lives in memory only,
+outcome, and for logbook entries the agent's short note). It never stores tool
+arguments or result bodies. It lives in memory only,
 so it resets when Hermes restarts or reloads plugins. No Hermes imports.
 """
 
@@ -29,6 +30,7 @@ class Event:
     count: int
     practice: str
     outcome: str
+    note: str = ""
 
 
 class EventLog:
@@ -43,10 +45,11 @@ class EventLog:
         self._sessions: OrderedDict[str, deque[Event]] = OrderedDict()
 
     def record(self, session_id: str, *, signal: str, tool_name: str, count: int, practice: str,
-               outcome: str) -> Optional[Event]:
+               outcome: str, note: str = "") -> Optional[Event]:
         if not session_id:
             return None
-        event = Event(self._now().strftime("%Y-%m-%dT%H:%M:%SZ"), signal, tool_name, count, practice, outcome)
+        event = Event(self._now().strftime("%Y-%m-%dT%H:%M:%SZ"), signal, tool_name, count, practice, outcome,
+                      note)
         with self._lock:
             events = self._sessions.get(session_id)
             if events is None:
