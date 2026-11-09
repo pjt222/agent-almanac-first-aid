@@ -145,6 +145,11 @@ class NextTurnNotes:
         outcomes: list[tuple[_Pending, str]] = []
         with self._lock:
             current = self._pending.get(session_id)
+            if current is not None and self._cooldowns.active(session_id, current.signal):
+                # It would be dropped at delivery anyway; it must not keep a live note out.
+                del self._pending[session_id]
+                outcomes.append((current, "suppressed:cooldown"))
+                current = None
             if current is not None and pending.signal == current.signal == COMPACTION:
                 pass  # several compactions before one message are one event
             elif current is None or _PRIORITY[pending.signal] > _PRIORITY[current.signal]:
@@ -174,10 +179,9 @@ class NextTurnNotes:
             pending = self._pending.pop(session_id, None)
         if pending is None:
             return None
-        if self._cooldowns.active(session_id, pending.signal):
+        if not self._cooldowns.try_stamp(session_id, pending.signal):
             self._record(session_id, pending, "suppressed:cooldown")
             return None
-        self._cooldowns.stamp(session_id, pending.signal)
         self._record(session_id, pending, "offered")
         return pending.note
 
@@ -195,7 +199,9 @@ class NextTurnNotes:
         outcomes: list[tuple[_Pending, str]] = []
         with self._lock:
             current = self._pending.get(session_id)
-            if current is None or _PRIORITY[pending.signal] > _PRIORITY[current.signal]:
+            if current is not None and pending.signal == current.signal == COMPACTION:
+                pass  # one compaction event, as in _queue
+            elif current is None or _PRIORITY[pending.signal] > _PRIORITY[current.signal]:
                 self._pending[session_id] = pending
                 if current is not None:
                     outcomes.append((current, "suppressed:superseded"))

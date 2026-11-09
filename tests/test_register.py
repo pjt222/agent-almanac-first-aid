@@ -140,3 +140,11 @@ def test_first_aid_kit_and_help(registered_context):
     assert "breathe" in handler("kit")
     assert handler("help").startswith("Usage: /first-aid")
     assert handler("nonsense").startswith("Usage: /first-aid")
+
+
+def test_first_aid_status_reports_same_tool_streaks_as_in_one_turn(registered_context):
+    (hook,) = registered_context.hooks["transform_tool_result"]
+    for path in ("a.md", "b.md", "c.md"):
+        _fail(hook, args={"path": path})
+    reply = registered_context.commands["first-aid"]["handler"]("", session_id="s-1")
+    assert "read_file failed 3x in one turn -> redirect (offered)" in reply

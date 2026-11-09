@@ -407,3 +407,21 @@ def test_config_uses_valid_values(triage):
                 "cooldown_seconds": 60}
     config = triage.TriageConfig.from_lookup(lambda key, default: settings.get(key, default))
     assert config == triage.TriageConfig(False, 3, 5, 60)
+
+
+def test_a_queued_crossing_counts_as_the_note_for_its_streak(make, triage):
+    tracker = make()
+    observe(tracker, "mcp__notes__read", {"q": "a"}, NOT_FOUND)
+    assert observe(tracker, "mcp__notes__read", {"q": "a"}, NOT_FOUND).outcome == triage.QUEUED_OUTCOME
+    # Core now warns same-tool at the 3rd failure; one note per tool per streak, queued or not.
+    assert observe(tracker, "mcp__notes__read", {"q": "b"}, OTHER_NOT_FOUND) is None
+
+
+def test_repeats_are_reported_once_per_call_per_turn(triage, clock):
+    reported = []
+    tracker = triage.Triage(triage.TriageConfig(), clock=clock, on_repeat=lambda *call: reported.append(call))
+    for _ in range(6):
+        observe(tracker, "read_file", {"path": "a"}, SUCCESS)
+    assert reported == [("s-1", "read_file", 3)]
+    observe(tracker, "read_file", {"path": "a"}, SUCCESS, turn="t-2")
+    assert reported == [("s-1", "read_file", 3)]  # a new turn starts the count again

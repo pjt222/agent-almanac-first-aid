@@ -240,6 +240,7 @@ OWN_TOOL_NAMES: frozenset[str] = frozenset({logbook_tool.TOOL_NAME})
 
 _MAX_TURNS = 512  # shared by all sessions; a busy gateway must not evict a live turn
 _MAX_SESSIONS = 256
+_MAX_COOLDOWN_SESSIONS = 4096  # a few floats each; a forgotten stamp would let a note repeat early
 
 Signature = tuple[str, str]
 
@@ -396,10 +397,23 @@ class Cooldowns:
 
     def stamp(self, session_id: str, signal: str) -> None:
         with self._lock:
-            self._last.setdefault(session_id, {})[signal] = self._clock()
-            self._last.move_to_end(session_id)
-            while len(self._last) > _MAX_SESSIONS:
-                self._last.popitem(last=False)
+            self._stamp_locked(session_id, signal)
+
+    def try_stamp(self, session_id: str, signal: str) -> bool:
+        """Stamp and return True unless that kind is cooling down; one step, so two
+        threads cannot both deliver a note of one kind."""
+        with self._lock:
+            last = self._last.get(session_id, {}).get(signal)
+            if last is not None and self._clock() - last < self._seconds:
+                return False
+            self._stamp_locked(session_id, signal)
+            return True
+
+    def _stamp_locked(self, session_id: str, signal: str) -> None:
+        self._last.setdefault(session_id, {})[signal] = self._clock()
+        self._last.move_to_end(session_id)
+        while len(self._last) > _MAX_COOLDOWN_SESSIONS:
+            self._last.popitem(last=False)
 
     def migrate(self, old_session_id: str, new_session_id: str) -> None:
         if not old_session_id or not new_session_id or old_session_id == new_session_id:
@@ -560,6 +574,7 @@ class Triage:
         transformed = annotate(tool_name, result, build_note(signal, tool_name, count))
         if transformed is None:
             return crossing("suppressed:unsupported-result")
+        if not self.cooldowns.try_stamp(session_id, signal):
+            return crossing("suppressed:cooldown")  # the other channel delivered one meanwhile
         turn.noted_tools.add(tool_name)
-        self.cooldowns.stamp(session_id, signal)
         return crossing("offered", transformed)

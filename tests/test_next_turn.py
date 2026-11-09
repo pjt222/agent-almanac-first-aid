@@ -276,3 +276,105 @@ def test_next_message_notes_are_short_and_attributed(plugin_package):
         assert len(note) <= 300, len(note)
         assert note.startswith("[first aid, from the agent-almanac-first-aid plugin, not the user] ")
         assert note.endswith("then log how it went with first_aid_log.")
+
+
+# --- third review: slot, atomic cooldown, rotation, eviction, coalescing ---------------
+
+def _components(plugin_package, now):
+    triage, next_turn, event_log = plugin_package.triage, plugin_package.next_turn, plugin_package.event_log
+    events = event_log.EventLog()
+    cooldowns = triage.Cooldowns(300, clock=lambda: now[0])
+    return triage, next_turn.NextTurnNotes(triage.TriageConfig(), events, cooldowns), cooldowns, events
+
+
+def _outcomes(events, session_id):
+    return [(event.signal, event.tool_name, event.outcome) for event in events.events(session_id)]
+
+
+def test_a_waiting_note_the_cooldown_would_drop_does_not_hold_the_slot(hooks, report):
+    tool(hooks, NOT_FOUND, tool_name="mcp__notes__read")
+    tool(hooks, NOT_FOUND, tool_name="mcp__notes__read")  # breathe waits
+    tool(hooks, NOT_FOUND, args={"path": "z.md"})
+    tool(hooks, NOT_FOUND, args={"path": "z.md"})  # breathe offered in the result: the waiting one is moot
+    for _ in range(3):
+        tool(hooks, SAME_CONTENT)  # heal must get the slot
+    assert "agent-almanac-first-aid:heal" in next_message(hooks)["context"]
+    lines = report()
+    assert "mcp__notes__read failed 2x with the same arguments -> breathe (not offered: cooldown)" in lines
+    assert "read_file returned the same result 3x -> heal (offered)" in lines
+
+
+def test_the_cooldown_is_checked_and_stamped_in_one_step(plugin_package):
+    triage = plugin_package.triage
+    cooldowns = triage.Cooldowns(300, clock=lambda: 0.0)
+    assert cooldowns.try_stamp("s-1", triage.EXACT_FAILURE) is True
+    assert cooldowns.try_stamp("s-1", triage.EXACT_FAILURE) is False
+    assert cooldowns.try_stamp("s-1", triage.SAME_TOOL_FAILURE) is True
+
+
+def test_the_cooldown_follows_a_rotated_session(hooks, report):
+    tool(hooks, NOT_FOUND, session_id="old")
+    tool(hooks, NOT_FOUND, session_id="old")  # breathe offered under the old id
+    compaction(hooks, session_id="new", old_session_id="old")
+    tool(hooks, NOT_FOUND, args={"path": "z.md"}, session_id="new", turn_id="t-2")
+    assert tool(hooks, NOT_FOUND, args={"path": "z.md"}, session_id="new", turn_id="t-2") is None
+    assert "read_file failed 2x with the same arguments -> breathe (not offered: cooldown)" in report("new")
+
+
+def test_rotation_keeps_the_later_of_two_stamps(plugin_package):
+    now = [0.0]
+    triage, _notes, cooldowns, _events = _components(plugin_package, now)
+    cooldowns.stamp("new", triage.EXACT_FAILURE)
+    now[0] = 250.0
+    cooldowns.stamp("old", triage.EXACT_FAILURE)
+    cooldowns.migrate("old", "new")
+    now[0] = 400.0
+    assert cooldowns.active("new", triage.EXACT_FAILURE)  # 150 s after the later stamp
+
+
+def test_a_compaction_in_its_cooldown_does_not_displace_a_waiting_note(hooks, report):
+    compaction(hooks)
+    assert next_message(hooks) is not None  # center delivered: compaction notes cool down
+    for _ in range(3):
+        tool(hooks, SAME_CONTENT)  # heal waits
+    compaction(hooks)
+    assert "agent-almanac-first-aid:heal" in next_message(hooks)["context"]
+
+
+def test_rotation_with_notes_waiting_under_both_ids(plugin_package):
+    now = [0.0]
+    triage, notes, _cooldowns, events = _components(plugin_package, now)
+    notes.on_compaction("old", "summarize")
+    notes.on_repeat("new", "read_file", 3)
+    notes.migrate("old", "new")
+    events.migrate("old", "new")
+    assert "agent-almanac-first-aid:center" in notes.take("new")
+    assert ("repeat", "read_file", "suppressed:superseded") in _outcomes(events, "new")
+
+
+def test_rotation_moves_a_waiting_note_to_the_new_id(plugin_package):
+    now = [0.0]
+    _triage, notes, _cooldowns, _events = _components(plugin_package, now)
+    notes.on_repeat("old", "read_file", 3)
+    notes.migrate("old", "new")
+    assert notes.take("old") is None
+    assert "agent-almanac-first-aid:heal" in notes.take("new")
+
+
+def test_an_evicted_waiting_note_is_logged(plugin_package, monkeypatch):
+    now = [0.0]
+    _triage, notes, _cooldowns, events = _components(plugin_package, now)
+    monkeypatch.setattr(plugin_package.next_turn, "_MAX_SESSIONS", 2)
+    for session_id in ("s-1", "s-2", "s-3"):
+        notes.on_repeat(session_id, "read_file", 3)
+    assert _outcomes(events, "s-1")[-1] == ("repeat", "read_file", "suppressed:evicted")
+    assert notes.take("s-1") is None
+
+
+def test_several_compactions_are_one_event(hooks, report):
+    for kind in ("summarize", "summarize", "provider_native"):
+        compaction(hooks, kind)
+    assert next_message(hooks) is not None
+    compaction_lines = [line for line in report().splitlines() if "context compacted" in line]
+    assert len(compaction_lines) == 2  # queued once, offered once
+    assert all("slot-taken" not in line and "superseded" not in line for line in compaction_lines)
