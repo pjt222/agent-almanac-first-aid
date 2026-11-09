@@ -25,7 +25,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Optional
 
-from . import kit
+from . import kit, logbook_tool
 
 # --- Mirror of agent/tool_guardrails.py (v0.22.7) ---------------------------------------
 
@@ -183,10 +183,11 @@ PRACTICE_FOR_SIGNAL = {
 NOTE_KEY = "first_aid"
 TEXT_NOTE_PREFIX = "\n\n[first aid] "
 NOTE_MAX_CHARS = 300
-_TOOL_NAME_MAX_CHARS = 64
+# Longer tool names are cut, so the longest note stays within NOTE_MAX_CHARS.
+_TOOL_NAME_MAX_CHARS = 35
 
 # The logbook tool's own failures are never annotated with a note about themselves.
-OWN_TOOL_NAMES: frozenset[str] = frozenset({"first_aid_log"})
+OWN_TOOL_NAMES: frozenset[str] = frozenset({logbook_tool.TOOL_NAME})
 
 _MAX_TURNS = 64
 _MAX_SESSIONS = 64
@@ -195,7 +196,9 @@ Signature = tuple[str, str]
 
 
 def build_note(signal: str, tool_name: str, count: int) -> str:
-    """The one line first aid adds: who says it, what was observed, which practice, how to load it."""
+    """The one line first aid adds: who says it, what was observed, which practice, how to load
+    it, and where to log the outcome (user decision 2026-11-09: without that, the live test's
+    agent changed approach but never logged)."""
     shown_tool = tool_name if len(tool_name) <= _TOOL_NAME_MAX_CHARS else tool_name[:_TOOL_NAME_MAX_CHARS - 3] + "..."
     practice = PRACTICE_FOR_SIGNAL[signal]
     if signal == EXACT_FAILURE:
@@ -206,7 +209,8 @@ def build_note(signal: str, tool_name: str, count: int) -> str:
         advice = "reframe the approach instead of varying the call"
     return (
         f"{observed} The {kit.PLUGIN_NAME} plugin suggests the {practice} practice: {advice}. "
-        f"Load it with skill_view(\"{kit.qualified_name(practice)}\")."
+        f"Load it with skill_view(\"{kit.qualified_name(practice)}\"), then log how it went with "
+        f"{logbook_tool.TOOL_NAME}."
     )
 
 

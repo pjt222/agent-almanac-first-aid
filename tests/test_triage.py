@@ -312,6 +312,15 @@ def test_notes_are_short_and_name_their_source_and_practice(triage, tool_name):
         assert len(note) <= triage.NOTE_MAX_CHARS
         assert "agent-almanac-first-aid plugin" in note
         assert f"agent-almanac-first-aid:{practice}" in note
+        assert note.endswith("then log how it went with first_aid_log.")
+
+
+def test_tool_names_up_to_the_cap_are_shown_whole(triage):
+    tool_name = "mcp__" + "x" * (triage._TOOL_NAME_MAX_CHARS - 5)
+    for signal in triage.PRACTICE_FOR_SIGNAL:
+        note = triage.build_note(signal, tool_name, 999)
+        assert note.startswith(tool_name + " failed")
+        assert len(note) <= triage.NOTE_MAX_CHARS
 
 
 def test_note_wording_never_reads_as_throttled(triage):

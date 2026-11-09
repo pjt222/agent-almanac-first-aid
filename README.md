@@ -29,7 +29,7 @@ matching practice and how to load it. The agent decides whether to use it.
   A JSON error gains a `first_aid` key, for example:
 
   ```json
-  {"error": "File not found: notes.md", "first_aid": "read_file failed 2 times with the same arguments. The agent-almanac-first-aid plugin suggests the breathe practice: pause once and re-read the error before the next step. Load it with skill_view(\"agent-almanac-first-aid:breathe\")."}
+  {"error": "File not found: notes.md", "first_aid": "read_file failed 2 times with the same arguments. The agent-almanac-first-aid plugin suggests the breathe practice: pause once and re-read the error before the next step. Load it with skill_view(\"agent-almanac-first-aid:breathe\"), then log how it went with first_aid_log."}
   ```
 
   A plain-text error gains the same sentence on a new line starting with `[first aid]`.
