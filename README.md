@@ -103,11 +103,14 @@ section, so if you change core's thresholds, set these to match.
   first string returned. First aid returns one only on a crossing; on that call it can override,
   or be overridden by, any other plugin that transforms the same result, for example the bundled
   `security-guidance` plugin on a failed `write_file` or `patch`. That contention is rare.
-- **Effect on core's stall notice.** A first-aid note restarts core's identical-call count, so in
-  a streak of identical failures its stall notice appears from the 5th call instead of the 3rd;
-  core's loop warnings are unchanged. With hard stops on and default thresholds, the run still
-  stops after the same five calls, by core's exact-arguments block. Rate-limited results are never
-  annotated.
+- **Effect on core's stall notice and hard stops.** A first-aid note restarts core's
+  identical-call count, so in a streak of identical failures its stall notice appears from the
+  5th call instead of the 3rd; core's loop warnings are unchanged. With hard stops on (by
+  default in messaging-gateway and cron runs, off in the CLI), core halts right after the 5th
+  identical failure. With a note, the agent gets one more model request instead: if its 6th call
+  is identical, core's exact-arguments block refuses it and the turn halts; if it changes the
+  call, the turn goes on, and core still halts after 8 failures of the same tool. Rate-limited
+  results are never annotated.
 - **It adds to the next user message, rarely.** A next-message note is appended to the user's
   message as context, never to the system prompt, so the prompt cache stays intact. Like any
   such context it stays in the transcript and is sent again with later requests until a
