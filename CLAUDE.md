@@ -100,7 +100,7 @@ to `NousResearch/hermes-agent`, pinned to a full commit SHA of this repo.
 | `skills/LICENSE-agent-almanac` | The almanac's MIT license, carried with the vendored skills |
 | `scripts/sync_kit.py` | Maintainer tool: copies the kit from an agent-almanac checkout at a given commit; `--check` / `--verify-source` verify. Single-file skills only |
 | `tests/` | pytest with a recording fake ctx; never imports Hermes. `tests/pytest.ini` lives there on purpose |
-| `tests/compare_with_core.py` | Maintainer harness, not collected by pytest: checks `triage.py`'s copy against core's own functions in a Hermes checkout. Like the tests, it never loads inside Hermes, which is why it may import core's private modules (validate's private-import check skips test folders for that reason) |
+| `tests/compare_with_core.py` | Maintainer harness, not collected by pytest: checks `triage.py`'s copy against core's own functions in a Hermes checkout. Like the tests, it never loads inside Hermes, which is why it may import core's private modules (validate's private-import check skips test folders for that reason). Keep it under `tests/`: anywhere else in the package, validate warns about those imports (measured on Hermes main, 2026-11-09) |
 
 ## Commands
 
