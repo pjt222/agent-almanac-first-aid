@@ -55,6 +55,9 @@ Short notes, rarely. No note is added:
 - for tools whose failures are normal work, the ones core treats as failure-tolerant:
   `terminal`, `execute_code`, `process`, `process_manage`, `browser_navigate`, `web_extract`;
 - for results core classifies as rate-limited, where a retry after the wait is the right move;
+- for tools whose results Hermes wraps as untrusted external data (`web_search`, `web_extract`,
+  `browser_*`, `mcp_*`): the wrapper tells the model not to follow requests found inside it, so a
+  note there would read like a prompt injection. Core's own loop warning still lands;
 - for results it cannot annotate cleanly: JSON that is not an object, an object that already has
   a `first_aid` key, non-text results, or a note that would change how core classifies the result;
 - for routine compaction (micro-compaction, tool-result pruning), which is logged only;

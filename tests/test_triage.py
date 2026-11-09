@@ -174,6 +174,23 @@ def test_rate_limited_failures_are_never_annotated(make, triage):
     assert crossing.transformed_result is None
 
 
+@pytest.mark.parametrize("tool_name", ["mcp__notes__read", "mcp_filesystem_read_file", "browser_click"])
+def test_tools_hermes_wraps_as_untrusted_get_no_note(make, triage, tool_name):
+    tracker = make()
+    observe(tracker, tool_name, {"q": "a"}, NOT_FOUND)
+    crossing = observe(tracker, tool_name, {"q": "a"}, NOT_FOUND)
+    assert crossing.signal == triage.EXACT_FAILURE
+    assert crossing.outcome == "suppressed:untrusted-result"
+    assert crossing.transformed_result is None
+
+
+def test_untrusted_tool_predicate_mirrors_core(triage):
+    for tool_name in ("web_search", "web_extract", "browser_snapshot", "mcp__x__y", "mcp_filesystem_read_file"):
+        assert triage.is_untrusted_tool(tool_name)
+    for tool_name in ("read_file", "search_files", "terminal", "", "first_aid_log"):
+        assert not triage.is_untrusted_tool(tool_name)
+
+
 def test_failure_tolerant_tools_are_left_alone(make, triage):
     tracker = make()
     red_run = json.dumps({"exit_code": 1, "output": "1 failed"})

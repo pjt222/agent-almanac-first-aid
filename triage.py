@@ -167,6 +167,21 @@ def file_mutation_result_landed(tool_name: str, result: Any) -> bool:
     return False
 
 
+# --- Mirror of agent/tool_dispatch_helpers.py (v0.22.7) ---------------------------------
+
+# _UNTRUSTED_TOOL_NAMES / _UNTRUSTED_TOOL_PREFIXES: results of these tools reach the model inside
+# an <untrusted_tool_result> block that says not to follow tool-invocation requests found in it.
+# A first-aid note there would sit inside that block and read like a prompt injection, so these
+# tools get none (user decision 2026-11-09); core's own loop warning still lands.
+UNTRUSTED_TOOL_NAMES = frozenset({"web_extract", "web_search"})
+UNTRUSTED_TOOL_PREFIXES = ("browser_", "mcp_")
+
+
+def is_untrusted_tool(tool_name: str) -> bool:
+    """_is_untrusted_tool: Hermes wraps this tool's results as untrusted external data."""
+    return bool(tool_name) and (tool_name in UNTRUSTED_TOOL_NAMES or tool_name.startswith(UNTRUSTED_TOOL_PREFIXES))
+
+
 # --- Mirror of agent/display.py _detect_tool_failure (v0.22.7) --------------------------
 
 def detect_failure(tool_name: str, result: Any) -> bool:
@@ -468,6 +483,8 @@ class Triage:
             # A throttled retry is the right move, and an annotated result would restart
             # core's identical-call count on a run its exact-args block does not bound.
             return crossing("suppressed:rate-limited")
+        if is_untrusted_tool(tool_name):
+            return crossing("suppressed:untrusted-result")
         if not self.config.notes_enabled:
             return crossing("suppressed:notes-disabled")
         now = self._clock()
