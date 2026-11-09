@@ -55,6 +55,63 @@ def test_first_aid_status_lists_the_kit(registered_context, kit):
             assert practice_name in reply
 
 
+NOT_FOUND = '{"error": "File not found: a.md"}'
+
+
+def _fail(hook, session_id="s-1", **overrides):
+    call = dict(tool_name="read_file", args={"path": "a.md"}, result=NOT_FOUND, session_id=session_id,
+                turn_id="t-1", tool_call_id="c-1", task_id="", api_request_id="", duration_ms=3,
+                status="error", error_type="", error_message="", telemetry_schema_version=1)
+    call.update(overrides)
+    return hook(**call)
+
+
+def test_every_callback_accepts_unknown_keywords(registered_context):
+    import inspect
+    callbacks = [cb for cbs in registered_context.hooks.values() for cb in cbs]
+    callbacks += [command["handler"] for command in registered_context.commands.values()]
+    callbacks += [tool["handler"] for tool in registered_context.tools.values()]
+    for callback in callbacks:
+        kinds = [parameter.kind for parameter in inspect.signature(callback).parameters.values()]
+        assert inspect.Parameter.VAR_KEYWORD in kinds, callback
+
+
+def test_transform_hook_returns_none_except_on_a_crossing(registered_context):
+    (hook,) = registered_context.hooks["transform_tool_result"]
+    assert _fail(hook, result='{"content": "ok"}') is None
+    assert _fail(hook) is None
+    annotated = _fail(hook)
+    assert isinstance(annotated, str) and '"first_aid"' in annotated
+    assert _fail(hook) is None
+
+
+def test_transform_hook_never_raises(registered_context):
+    (hook,) = registered_context.hooks["transform_tool_result"]
+    # Mixed key types make the canonical-JSON signature raise inside triage.
+    assert _fail(hook, args={1: "a", "b": 2}) is None
+
+
+def test_first_aid_status_reports_this_sessions_events_only(registered_context):
+    (hook,) = registered_context.hooks["transform_tool_result"]
+    handler = registered_context.commands["first-aid"]["handler"]
+    _fail(hook, session_id="s-1")
+    _fail(hook, session_id="s-1")
+    reply = handler("status", session_id="s-1", platform="cli", source=None, session_key="k")
+    assert "read_file failed 2x with the same arguments -> breathe (offered)" in reply
+    assert "nothing noticed in this session yet" in handler("", session_id="s-other")
+    assert "received no session id" in handler("", session_id="")
+
+
+def test_settings_reach_triage(plugin_package, recording_context_class):
+    context = recording_context_class(settings={"notes_enabled": False})
+    plugin_package.register(context)
+    (hook,) = context.hooks["transform_tool_result"]
+    _fail(hook)
+    assert _fail(hook) is None
+    reply = context.commands["first-aid"]["handler"]("", session_id="s-1")
+    assert "(not offered: notes-disabled)" in reply
+
+
 def test_first_aid_kit_and_help(registered_context):
     handler = registered_context.commands["first-aid"]["handler"]
     assert "breathe" in handler("kit")
