@@ -65,6 +65,18 @@ class EventLog:
         with self._lock:
             return list(self._sessions.get(session_id, ()))
 
+    def migrate(self, old_session_id: str, new_session_id: str) -> None:
+        """Move a session's events to its new id when compaction rotates the session."""
+        if not old_session_id or not new_session_id or old_session_id == new_session_id:
+            return
+        with self._lock:
+            old_events = self._sessions.pop(old_session_id, None)
+            if not old_events:
+                return
+            merged: deque[Event] = deque(old_events, maxlen=self._max_events)
+            merged.extend(self._sessions.pop(new_session_id, ()))
+            self._sessions[new_session_id] = merged
+
     def most_recent_session(self) -> Optional[str]:
         with self._lock:
             return next(reversed(self._sessions), None)

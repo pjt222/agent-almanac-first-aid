@@ -1,8 +1,9 @@
 """agent-almanac-first-aid: registration.
 
 Bundles the kit's skills, watches tool results for failure streaks (transform_tool_result),
-gives the agent a logbook tool (first_aid_log), and answers /first-aid with this session's
-event log and the kit. plugin.yaml declares
+queues notes after compaction and repeated identical results for the next user message
+(post_compaction, pre_llm_call), gives the agent a logbook tool (first_aid_log), and answers
+/first-aid with this session's event log and the kit. plugin.yaml declares
 exactly what register() adds, so the two stay in step.
 """
 
@@ -11,7 +12,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from . import event_log, kit, logbook_tool, triage
+from . import event_log, kit, logbook_tool, next_turn, triage
 
 logger = logging.getLogger(__name__)
 
@@ -20,15 +21,42 @@ _USAGE = "Usage: /first-aid [status|kit|help]"
 _SIGNAL_TEXT = {
     triage.EXACT_FAILURE: "{tool} failed {count}x with the same arguments",
     triage.SAME_TOOL_FAILURE: "{tool} failed {count}x in a row",
+    next_turn.COMPACTION: "context compacted ({tool})",
+    next_turn.REPEAT: "{tool} returned the same result {count}x",
 }
 
 
 class FirstAid:
-    """The plugin's runtime state: one triage counter and one event log per process."""
+    """The plugin's runtime state: one triage counter, one queue of next-turn notes and one
+    event log per process."""
 
     def __init__(self, config: triage.TriageConfig) -> None:
-        self.triage = triage.Triage(config)
         self.events = event_log.EventLog()
+        self.next_turn = next_turn.NextTurnNotes(config, self.events)
+        self.triage = triage.Triage(config, on_repeat=self.next_turn.on_repeat)
+
+    def on_post_compaction(self, session_id: str = "", old_session_id: str = "", kind: str = "",
+                           **kwargs: Any) -> None:
+        """Record a committed compaction; its note waits for the session's next user message."""
+        try:
+            if old_session_id and old_session_id != session_id:
+                # compression.in_place: false rotates the session id; carry the state across.
+                self.triage.migrate_session(old_session_id, session_id)
+                self.next_turn.migrate(old_session_id, session_id)
+                self.events.migrate(old_session_id, session_id)
+            self.next_turn.on_compaction(session_id, kind)
+        except Exception:
+            logger.debug("%s: post_compaction failed", kit.PLUGIN_NAME, exc_info=True)
+        return None
+
+    def on_pre_llm_call(self, session_id: str = "", **kwargs: Any) -> Optional[dict]:
+        """Hand over the waiting note, if any. Never a block directive."""
+        try:
+            note = self.next_turn.take(session_id)
+        except Exception:
+            logger.debug("%s: pre_llm_call failed", kit.PLUGIN_NAME, exc_info=True)
+            return None
+        return {"context": note} if note else None
 
     def on_transform_tool_result(self, tool_name: str = "", args: Any = None, result: Any = None,
                                  session_id: str = "", turn_id: str = "", tool_call_id: str = "",
@@ -106,6 +134,8 @@ def register(ctx) -> None:
 
     first_aid = FirstAid(_read_config(ctx))
     ctx.register_hook("transform_tool_result", first_aid.on_transform_tool_result)
+    ctx.register_hook("post_compaction", first_aid.on_post_compaction)
+    ctx.register_hook("pre_llm_call", first_aid.on_pre_llm_call)
     ctx.register_tool(
         name=logbook_tool.TOOL_NAME,
         toolset=logbook_tool.TOOLSET,

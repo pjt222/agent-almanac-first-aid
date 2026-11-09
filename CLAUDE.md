@@ -5,10 +5,10 @@ A Hermes Agent plugin: a first-aid kit for AI agents, built from
 
 **Built so far:** eight vendored practices registered as namespaced skills with index
 descriptions; failure-streak triage that adds one note to a failed tool result where core first
-warns; an in-memory event log; the agent-callable logbook tool `first_aid_log`; and
-`/first-aid` reporting the session's events and the kit. **Planned:** next-turn notes after
-compaction and repeated successful calls. Keep README.md honest about which is which: the README at the pinned SHA
-becomes the catalog page.
+warns; next-message notes after compaction (center) and repeated identical successful results
+(heal); an in-memory event log; the agent-callable logbook tool `first_aid_log`; and
+`/first-aid` reporting the session's events and the kit. Keep README.md honest about what is
+built and what is not: the README at the pinned SHA becomes the catalog page.
 
 **Delivery design (decided by the user 2026-11-05, after the PR #1 review).** Hermes core's
 `tool_loop_guardrails` already *detects* repeated and failing calls in-loop and warns; this
@@ -42,11 +42,17 @@ plugin's job is the *prescription*: the matching practice at a useful moment, pl
   repeat counter) records the event; the next `pre_llm_call` delivers the note. Every in-agent
   compaction, turn-start included, runs after that turn's `pre_llm_call`
   (`agent/turn_context.py`, v0.22.7), so the note lands with the next user message (user decision
-  2026-11-06, taken after being told).
+  2026-11-06, taken after being told). `next_turn.py` keeps one waiting note per session
+  (compaction beats repeat), notes only `summarize`/`provider_native` compaction, and on a
+  rotated session id (`old_session_id`) moves counts, waiting notes and the log to the new id.
+  `pre_llm_call` returns `{"context": note}` or `None`, never a block directive.
 - **Kit:** all eight practices stay. Notes name only practices with an observable trigger
   (breathe, redirect, center, heal); attune, honesty-humility, meditate and rest stay reachable
   through the skill index and their slash commands.
-- **Demo:** the failure streak uses a non-tolerant tool (e.g. `read_file` on a missing path).
+- **Demo:** the failure streak uses a non-tolerant tool (`read_file` on a missing path), with a
+  prompt that asks for one identical retry: a capable model otherwise recovers before any
+  threshold (live test 2026-11-09). The chat screen shows only Hermes's own failure line; the
+  `/first-aid` report makes the note visible (user decisions 2026-11-09).
 
 Built for the Nous Research Hermes Agent Plugin Hackathon (submissions close
 2026-11-11, 17:00 EST). The entry is a PR adding `plugin-catalog/agent-almanac-first-aid.yaml`
@@ -79,10 +85,11 @@ to `NousResearch/hermes-agent`, pinned to a full commit SHA of this repo.
 | Path | What |
 |---|---|
 | `plugin.yaml` | Manifest: name, version, `requires_hermes`, declared tools/hooks, `config_schema` |
-| `__init__.py` | `register(ctx)`: registers the kit skills, the `transform_tool_result` hook and `/first-aid` |
+| `__init__.py` | `register(ctx)`: registers the kit skills, three hooks, the logbook tool and `/first-aid` |
 | `triage.py` | Failure classification and counting mirrored from core, the note, the annotation; no Hermes imports |
 | `event_log.py` | Bounded in-memory per-session record of what first aid noticed; no Hermes imports |
 | `logbook_tool.py` | The `first_aid_log` schema and handler, writing into the event log; no Hermes imports |
+| `next_turn.py` | Waiting notes for compaction and repeated results, handed to `pre_llm_call`; no Hermes imports |
 | `skills/<name>/SKILL.md` | Vendored almanac practices (read-only copies) |
 | `kit.py` | The kit table (practice → when to reach for it); no Hermes imports |
 | `skills/PROVENANCE.json` | Source repo, commit SHA and per-file sha256 of the vendored kit |

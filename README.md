@@ -2,9 +2,7 @@
 
 A first-aid kit for AI agents running in [Hermes Agent](https://github.com/NousResearch/hermes-agent).
 
-> **Status:** in development for the Hermes Agent Plugin Hackathon. This build bundles the kit,
-> notes failure streaks, gives the agent a logbook tool, and reports both in `/first-aid`. Notes
-> after compaction are planned, not built.
+> **Status:** in development for the Hermes Agent Plugin Hackathon.
 
 The kit is eight practices from [agent-almanac](https://github.com/pjt222/agent-almanac)'s
 AI-welfare skills. Hermes core already detects tool loops and warns about them. This plugin adds
@@ -33,6 +31,15 @@ matching practice and how to load it. The agent decides whether to use it.
   ```
 
   A plain-text error gains the same sentence on a new line starting with `[first aid]`.
+- **Next-message notes.** Two signals have no failed result to carry a note, so their note is
+  added to the next user message instead (`pre_llm_call`), starting with `[first aid]`:
+
+  | Signal | Default threshold | Practice |
+  |---|---|---|
+  | The conversation context was compacted (summarized) | any compaction that rewrites it | `center` |
+  | A tool returned the same successful result for the same call | 3rd time in one turn | `heal` |
+
+  Successful results themselves are never changed: core's repeat detection hashes them.
 - **Logbook tool.** `first_aid_log` lets the agent record the practice it applied and how it
   went (`helped`, `partly`, `no_change`), with an optional short note.
 - **`/first-aid`.** Shows this session's events in order: what first aid noticed (time, tool,
@@ -49,7 +56,10 @@ Short notes, rarely. No note is added:
   `terminal`, `execute_code`, `process`, `process_manage`, `browser_navigate`, `web_extract`;
 - for results core classifies as rate-limited, where a retry after the wait is the right move;
 - for results it cannot annotate cleanly: JSON that is not an object, an object that already has
-  a `first_aid` key, non-text results, or a note that would change how core classifies the result.
+  a `first_aid` key, non-text results, or a note that would change how core classifies the result;
+- for routine compaction (micro-compaction, tool-result pruning), which is logged only;
+- for more than one next-message note at a time: one waits per session, and a compaction note
+  takes the place of a repeat note.
 
 Offered notes are recorded in the event log, and so are notes held back by the cooldown, the
 rate-limit rule, the settings or an unannotatable result, with the reason.
@@ -67,6 +77,7 @@ plugins:
         exact_failure_threshold: 2       # identical-argument failures before a note
         same_tool_failure_threshold: 3   # failures of one tool in a row before a note
         cooldown_seconds: 300            # per session, per kind of note
+        repeat_threshold: 3              # identical successful results for one call in a turn
 ```
 
 The thresholds default to core's `tool_loop_guardrails` defaults. First aid cannot read that
@@ -90,6 +101,13 @@ section, so if you change core's thresholds, set these to match.
   core's loop warnings are unchanged. With hard stops on and default thresholds, the run still
   stops after the same five calls, by core's exact-arguments block. Rate-limited results are never
   annotated.
+- **It adds to the next user message, rarely.** A next-message note is appended to the user's
+  message as context, never to the system prompt, so the prompt cache stays intact. Like any
+  such context it stays in the transcript and is sent again with later requests until a
+  compaction rewrites that message. After a compaction inside the agent's turn, the note arrives
+  with the next user message, not in the same turn. Background-review runs share the session id,
+  so a repeat they produce can queue a note for the next message. Hermes routes that bypass
+  `pre_llm_call` context, such as the Codex app-server route, may not deliver it.
 - **A best-effort mirror.** The failure classifier and the counting rules are copied from Hermes
   v0.22.7, not imported (those modules are not a public plugin API). Failures that never reach
   `transform_tool_result`, such as timeouts, executor exceptions and tool-search bridge calls, are
@@ -99,21 +117,20 @@ section, so if you change core's thresholds, set these to match.
 - **Memory only.** The event log holds time, signal, tool name, count, practice and outcome per
   session, plus the logbook tool's short note (at most 160 characters, written by the agent).
   It never holds tool arguments or result bodies. It is bounded (200 events per session, 64
-  sessions), writes nothing to disk, and resets when Hermes restarts or reloads plugins. With
+  sessions), writes nothing to disk, and resets when Hermes restarts or reloads plugins. If a
+  compaction gives the session a new id (`compression.in_place: false`), counts, waiting notes
+  and the log move to it. With
   `dashboard.turn_isolation` on (Desktop/TUI, off by default), the agent turns run in another
   process than slash commands, so `/first-aid` cannot see the events.
 - **Context.** The kit adds eight rows to the agent's skill index (descriptions under 60
-  characters each) and nine slash commands. A note is under 300 characters, once per streak.
+  characters each) and nine slash commands. A note is under 300 characters, once per streak or
+  event.
   The `first_aid_log` schema, about 800 characters of JSON, is sent with every model request
   while its toolset `first_aid` is enabled (on by default; `hermes tools` can switch it off).
 - No network calls, no LLM calls, no credentials, no Python dependencies, no background processes.
 
 `scripts/sync_kit.py` is a maintainer tool, run by hand to copy the kit from agent-almanac at a
 pinned commit. The plugin never imports or runs it, and nothing is fetched or updated at runtime.
-
-## Planned
-
-- **Notes after compaction and repeated successful calls:** delivered with the next user message.
 
 ## License
 

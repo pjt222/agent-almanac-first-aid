@@ -44,9 +44,43 @@ PROGRESS_RESET_TOOL_NAMES = frozenset({
     "cronjob_manage", "todo", "todo_list", "memory", "skill_manage",
 })
 
+# IDEMPOTENT_TOOL_NAMES / MUTATING_TOOL_NAMES: the tools core's no-progress detector watches
+# for byte-identical successful repeats (ToolCallGuardrailController._is_idempotent).
+IDEMPOTENT_TOOL_NAMES = frozenset({
+    "read_file", "search_files", "web_search", "web_extract", "session_search", "skill_view", "skills_list",
+    "browser_snapshot", "browser_console", "browser_get_images", "mcp_filesystem_read_file",
+    "mcp_filesystem_read_text_file", "mcp_filesystem_read_multiple_files", "mcp_filesystem_list_directory",
+    "mcp_filesystem_list_directory_with_sizes", "mcp_filesystem_directory_tree", "mcp_filesystem_get_file_info",
+    "mcp_filesystem_search_files",
+})
+MUTATING_TOOL_NAMES = frozenset({
+    "terminal", "execute_code", "write_file", "patch", "todo_list", "memory", "skill_manage",
+    "browser_click", "browser_type", "browser_press", "browser_scroll", "browser_navigate",
+    "send_message", "cronjob_manage", "delegate_task", "process_manage",
+})
+
 # ToolCallGuardrailConfig defaults: exact_failure_warn_after, same_tool_failure_warn_after.
 DEFAULT_EXACT_FAILURE_THRESHOLD = 2
 DEFAULT_SAME_TOOL_FAILURE_THRESHOLD = 3
+# STALL_GUARD_IDENTICAL_CALL_THRESHOLD. Core already warns in the turn at the 2nd identical
+# successful result (no_progress_warn_after); first aid's next-turn note waits for the 3rd.
+DEFAULT_REPEAT_THRESHOLD = 3
+
+
+def is_idempotent(tool_name: str) -> bool:
+    """ToolCallGuardrailController._is_idempotent with the default tool sets."""
+    return tool_name not in MUTATING_TOOL_NAMES and tool_name in IDEMPOTENT_TOOL_NAMES
+
+
+def result_hash(result: str) -> str:
+    """_result_hash for an idempotent tool: sha256 of canonical JSON, or of the raw text.
+    (Core's execute_code metadata stripping never applies: execute_code is not idempotent.)"""
+    parsed = _safe_json_loads(result or "")
+    if parsed is None:
+        text = result or ""
+    else:
+        text = json.dumps(parsed, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()
 
 # --- Mirror of agent/tool_result_classification.py (v0.22.7) ----------------------------
 
@@ -245,6 +279,7 @@ class TriageConfig:
     exact_failure_threshold: int = DEFAULT_EXACT_FAILURE_THRESHOLD
     same_tool_failure_threshold: int = DEFAULT_SAME_TOOL_FAILURE_THRESHOLD
     cooldown_seconds: int = 300
+    repeat_threshold: int = DEFAULT_REPEAT_THRESHOLD
 
     @classmethod
     def from_lookup(cls, lookup: Callable[[str, Any], Any]) -> "TriageConfig":
@@ -264,6 +299,7 @@ class TriageConfig:
             exact_failure_threshold=positive_int("exact_failure_threshold", defaults.exact_failure_threshold),
             same_tool_failure_threshold=positive_int("same_tool_failure_threshold", defaults.same_tool_failure_threshold),
             cooldown_seconds=positive_int("cooldown_seconds", defaults.cooldown_seconds),
+            repeat_threshold=positive_int("repeat_threshold", defaults.repeat_threshold),
         )
 
 
@@ -289,6 +325,13 @@ class _TurnState:
     decided_exact: set[Signature] = field(default_factory=set)
     decided_same: set[str] = field(default_factory=set)
     noted_tools: set[str] = field(default_factory=set)
+    # Core's no-progress record: signature -> (result hash, repeat count); not strictly
+    # consecutive, as in core.
+    no_progress: dict[Signature, tuple[str, int]] = field(default_factory=dict)
+    repeat_reported: set[Signature] = field(default_factory=set)
+
+
+RepeatCallback = Callable[[str, str, int], None]
 
 
 class Triage:
@@ -298,16 +341,20 @@ class Triage:
     the crossing decision happen under one lock.
     """
 
-    def __init__(self, config: TriageConfig = TriageConfig(), clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(self, config: TriageConfig = TriageConfig(), clock: Callable[[], float] = time.monotonic,
+                 on_repeat: Optional[RepeatCallback] = None) -> None:
         self.config = config
         self._clock = clock
+        self._on_repeat = on_repeat
         self._lock = threading.Lock()
         self._turns: OrderedDict[tuple[str, str], _TurnState] = OrderedDict()
         self._last_offered: OrderedDict[str, dict[str, float]] = OrderedDict()
 
     def observe(self, *, tool_name: str, args: Any, result: Any, session_id: str, turn_id: str,
                 tool_call_id: str = "") -> Optional[Crossing]:
-        """Count one tool result. Returns a Crossing on the first warning of a streak, else None."""
+        """Count one tool result. Returns a Crossing on the first warning of a failure streak,
+        else None. A run of identical successful results reaching repeat_threshold is reported
+        to on_repeat instead, once per signature per turn, after the lock is released."""
         if not session_id or not turn_id or "#" in (tool_call_id or ""):
             # No key to count under (execute_code RPC, MCP transport), or one entry of a
             # connector batch, which core counts as a single call.
@@ -321,10 +368,27 @@ class Triage:
 
         with self._lock:
             turn = self._turn_state(session_id, turn_id)
-            if not failed:
-                self._count_success(turn, tool_name, signature, landed)
-                return None
-            return self._count_failure(turn, tool_name, signature, throttled, result, session_id)
+            if failed:
+                return self._count_failure(turn, tool_name, signature, throttled, result, session_id)
+            repeat_count = self._count_success(turn, tool_name, signature, landed, result)
+        if repeat_count and self._on_repeat is not None:
+            self._on_repeat(session_id, tool_name, repeat_count)
+        return None
+
+    def migrate_session(self, old_session_id: str, new_session_id: str) -> None:
+        """Carry counts and cooldowns over when compaction rotates the session id
+        (compression.in_place: false). Core's counter lives on the agent and keeps counting."""
+        if not old_session_id or not new_session_id or old_session_id == new_session_id:
+            return
+        with self._lock:
+            for key in [key for key in self._turns if key[0] == old_session_id]:
+                state = self._turns.pop(key)
+                self._turns.setdefault((new_session_id, key[1]), state)
+            old_offered = self._last_offered.pop(old_session_id, None)
+            if old_offered:
+                merged = self._last_offered.setdefault(new_session_id, {})
+                for signal, offered_at in old_offered.items():
+                    merged[signal] = max(offered_at, merged.get(signal, offered_at))
 
     # -- counting (mirrors ToolCallGuardrailController.after_call) --
 
@@ -339,8 +403,9 @@ class Triage:
             self._turns.move_to_end(key)
         return turn
 
-    @staticmethod
-    def _count_success(turn: _TurnState, tool_name: str, signature: Signature, landed: bool) -> None:
+    def _count_success(self, turn: _TurnState, tool_name: str, signature: Signature, landed: bool,
+                       result: Any) -> int:
+        """Core's success branch. Returns the repeat count to report, or 0."""
         turn.exact.pop(signature, None)
         turn.decided_exact.discard(signature)
         turn.same.pop(tool_name, None)
@@ -351,6 +416,17 @@ class Triage:
             turn.same.clear()
             turn.decided_same.clear()
             turn.noted_tools.clear()
+        if not is_idempotent(tool_name) or not isinstance(result, str):
+            turn.no_progress.pop(signature, None)
+            return 0
+        digest = result_hash(result)
+        previous = turn.no_progress.get(signature)
+        repeat_count = previous[1] + 1 if previous is not None and previous[0] == digest else 1
+        turn.no_progress[signature] = (digest, repeat_count)
+        if repeat_count >= self.config.repeat_threshold and signature not in turn.repeat_reported:
+            turn.repeat_reported.add(signature)
+            return repeat_count
+        return 0
 
     def _count_failure(self, turn: _TurnState, tool_name: str, signature: Signature, throttled: bool,
                        result: Any, session_id: str) -> Optional[Crossing]:
@@ -363,6 +439,7 @@ class Triage:
             turn.exact[signature] = turn.exact.get(signature, 0) + 1
         exact_count = turn.exact.get(signature, 0)
         same_count = turn.same[tool_name] = turn.same.get(tool_name, 0) + 1
+        turn.no_progress.pop(signature, None)
 
         # Core's decision: exact-args warning first, then same-tool warning.
         if not throttled and exact_count >= self.config.exact_failure_threshold:
