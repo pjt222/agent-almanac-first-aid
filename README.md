@@ -74,8 +74,8 @@ Short notes, rarely. No note is added:
   is dropped if a note of its kind reached the agent meanwhile.
 
 The event log records each decision with its reason: offered, queued for the next message,
-or not offered (cooldown, rate-limited, notes disabled, unannotatable result, superseded or
-refused by another waiting note). "Offered" means first aid handed the note to Hermes:
+or not offered (cooldown, rate-limited, notes disabled, unannotatable result, superseded,
+refused by another waiting note, or evicted when more than 256 sessions have one waiting). "Offered" means first aid handed the note to Hermes:
 another plugin's transform, a turn another plugin vetoes, or a route that skips this context
 can still keep it from the agent, and the cooldown has started all the same.
 
@@ -130,7 +130,8 @@ warnings off, set `notes_enabled: false` too.
   with the next user message, not in the same turn. Hermes routes that bypass `pre_llm_call`
   context, such as the Codex app-server route, may not deliver it.
 - **Background-review runs count as the session.** Hermes's background-review runs share the
-  user session's id, and use the skill and memory tools plus `read_file` and `search_files`. So
+  user session's id, and use the skill and memory tools plus `read_file` and `search_files`
+  (and any tool listed in `auxiliary.background_review.extra_tools`). So
   a failure streak there can put a note into that run and start the session's cooldown, it
   shows in `/first-aid` as if the main agent had it, and a repeat there can queue a note for
   the user's next message.
