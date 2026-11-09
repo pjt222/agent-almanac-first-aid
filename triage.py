@@ -236,8 +236,8 @@ NOTE_MAX_CHARS = 300
 # The logbook tool's own failures are never annotated with a note about themselves.
 OWN_TOOL_NAMES: frozenset[str] = frozenset({logbook_tool.TOOL_NAME})
 
-_MAX_TURNS = 64
-_MAX_SESSIONS = 64
+_MAX_TURNS = 512  # shared by all sessions; a busy gateway must not evict a live turn
+_MAX_SESSIONS = 256
 
 Signature = tuple[str, str]
 

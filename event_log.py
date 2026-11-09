@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
-MAX_SESSIONS = 64
+MAX_SESSIONS = 256
 MAX_EVENTS_PER_SESSION = 200
 
 

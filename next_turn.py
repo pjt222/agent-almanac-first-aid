@@ -40,7 +40,7 @@ NOTED_COMPACTION_KINDS = frozenset({"summarize", "provider_native"})
 # The note is appended to the user's message, so it says up front that the user did not write
 # it, as core labels its own injected notes (PR #2 review; user decision 2026-11-09).
 NOTE_PREFIX = f"[first aid, from the {kit.PLUGIN_NAME} plugin, not the user] "
-_MAX_SESSIONS = 64
+_MAX_SESSIONS = 256
 
 
 def _load_and_log(practice: str) -> str:

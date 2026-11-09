@@ -267,10 +267,10 @@ def test_notes_can_be_switched_off(make):
     assert crossing.transformed_result is None
 
 
-def test_turn_state_is_bounded(make):
+def test_turn_state_is_bounded(make, triage):
     tracker = make()
     observe(tracker, "read_file", {"path": "a"}, NOT_FOUND, turn="t-old")
-    for index in range(64):
+    for index in range(triage._MAX_TURNS):
         observe(tracker, "read_file", {"path": "a"}, SUCCESS, turn=f"t-{index}")
     # t-old was evicted, so this failure starts a new count of 1 and draws no note.
     assert observe(tracker, "read_file", {"path": "a"}, NOT_FOUND, turn="t-old") is None

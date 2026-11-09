@@ -123,7 +123,7 @@ section, so if you change core's thresholds, set these to match.
   `"50"` and `50` can count as one streak here and as two in core.
 - **Memory only.** The event log holds time, signal, tool name, count, practice and outcome per
   session, plus the logbook tool's short note (at most 160 characters, written by the agent).
-  It never holds tool arguments or result bodies. It is bounded (200 events per session, 64
+  It never holds tool arguments or result bodies. It is bounded (200 events per session, 256
   sessions), writes nothing to disk, and resets when Hermes restarts or reloads plugins. If a
   compaction gives the session a new id (`compression.in_place: false`), counts, waiting notes
   and the log move to it. With
