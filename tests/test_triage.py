@@ -370,6 +370,15 @@ def test_tool_names_that_fit_are_shown_whole(triage):
         assert len(note) <= triage.NOTE_MAX_CHARS
 
 
+def test_a_long_tool_name_keeps_both_ends(triage):
+    tool_name = "mcp_github_" + "x" * 300 + "_create_review_comment"
+    note = triage.build_note(triage.EXACT_FAILURE, tool_name, 2)
+    assert len(note) <= triage.NOTE_MAX_CHARS
+    shown = note.split(" failed ", 1)[0]
+    assert shown.startswith("mcp_github_") and shown.endswith("review_comment") and "..." in shown
+    assert "agent-almanac-first-aid:breathe" in note and note.endswith("first_aid_log.")
+
+
 @pytest.mark.parametrize("count", [2, 10 ** 6, 10 ** 40])
 def test_every_note_fits_whatever_the_count_and_name(triage, count):
     for signal in triage.PRACTICE_FOR_SIGNAL:

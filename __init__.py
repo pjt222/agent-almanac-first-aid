@@ -1,8 +1,9 @@
 """agent-almanac-first-aid: registration.
 
 Bundles the kit's skills, watches tool results for failure streaks (transform_tool_result),
-queues notes after compaction and repeated identical results for the next user message
-(post_compaction, pre_llm_call), gives the agent a logbook tool (first_aid_log), and answers
+queues notes for the next user message after compaction, repeated identical results and
+failure streaks of tools Hermes wraps as untrusted (post_compaction, pre_llm_call), gives
+the agent a logbook tool (first_aid_log), and answers
 /first-aid with this session's event log and the kit. plugin.yaml declares
 exactly what register() adds, so the two stay in step.
 """
@@ -20,7 +21,7 @@ _USAGE = "Usage: /first-aid [status|kit|help]"
 
 _SIGNAL_TEXT = {
     triage.EXACT_FAILURE: "{tool} failed {count}x with the same arguments",
-    triage.SAME_TOOL_FAILURE: "{tool} failed {count}x this turn",
+    triage.SAME_TOOL_FAILURE: "{tool} failed {count}x in one turn",
     next_turn.COMPACTION: "context compacted ({tool})",
     next_turn.REPEAT: "{tool} returned the same result {count}x",
 }

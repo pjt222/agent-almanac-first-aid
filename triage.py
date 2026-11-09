@@ -244,17 +244,27 @@ _MAX_SESSIONS = 256
 Signature = tuple[str, str]
 
 
+def _shorten_middle(name: str, length: int) -> str:
+    """Cut name to length with "..." in the middle, keeping both ends (an MCP tool's server
+    prefix and its action suffix are what identify it)."""
+    if len(name) <= length:
+        return name
+    keep = max(length - 3, 2)
+    head = (keep + 1) // 2
+    return name[:head] + "..." + name[len(name) - (keep - head):]
+
+
 def fit_note(render: Callable[[str], str], tool_name: str, limit: int = NOTE_MAX_CHARS) -> str:
-    """Render a note naming tool_name, cutting the name until the note fits within limit."""
+    """Render a note naming tool_name, shortening the name until the note fits within limit."""
     note = render(tool_name)
     if len(note) <= limit:
         return note
-    keep = len(tool_name) - (len(note) - limit) - 3
-    if keep >= 8:
-        note = render(tool_name[:keep] + "...")
+    target = len(tool_name) - (len(note) - limit)
+    if target >= 11:
+        note = render(_shorten_middle(tool_name, target))
         if len(note) <= limit:
             return note
-    note = render(tool_name[:5] + "...")
+    note = render(_shorten_middle(tool_name, 11))
     return note if len(note) <= limit else note[:limit - 3] + "..."
 
 
