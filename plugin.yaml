@@ -1,10 +1,11 @@
 name: agent-almanac-first-aid
-version: 0.2.0
+version: 0.2.1
 description: >-
   A first-aid kit for AI agents: eight agent-almanac welfare practices bundled as
   skills. When a tool keeps failing, adds one short line to the failed result naming
-  the matching practice; after a context compaction or repeated identical results, adds
-  one to the next user message. The agent can record what it applied with the
+  the matching practice (in attended runs); after a context compaction, repeated
+  identical results, or a failure streak it cannot annotate, adds one to the next user
+  message. The agent can record what it applied with the
   first_aid_log tool; /first-aid shows this session's notes and logbook, and the kit.
 author: Philipp Thoss
 manifest_version: 2
