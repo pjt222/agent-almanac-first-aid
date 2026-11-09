@@ -93,7 +93,9 @@ section, so if you change core's thresholds, set these to match.
 - **A best-effort mirror.** The failure classifier and the counting rules are copied from Hermes
   v0.22.7, not imported (those modules are not a public plugin API). Failures that never reach
   `transform_tool_result`, such as timeouts, executor exceptions and tool-search bridge calls, are
-  counted by core but not by first aid.
+  counted by core but not by first aid. For registry tools first aid sees the arguments after
+  Hermes coerces their types, while core fingerprints them before, so calls differing only as
+  `"50"` and `50` can count as one streak here and as two in core.
 - **Memory only.** The event log holds time, signal, tool name, count, practice and outcome per
   session, plus the logbook tool's short note (at most 160 characters, written by the agent).
   It never holds tool arguments or result bodies. It is bounded (200 events per session, 64
