@@ -46,7 +46,9 @@ matching practice and how to load it. The agent decides whether to use it.
   of untrusted tools are not changed either: Hermes wraps them in a block that tells the model
   not to follow requests found inside it, so a note there would read like a prompt injection.
   A run made of one message (`hermes chat -q`, cron) has no next message, so these notes never
-  arrive there.
+  arrive there. Tools whose output changes when repeated rarely trigger the repeat note:
+  `read_file` answers an unchanged re-read with a short stub, and `search_files` can list the
+  same files in a different order.
 - **Logbook tool.** `first_aid_log` lets the agent record the practice it applied and how it
   went (`helped`, `partly`, `no_change`), with an optional short note.
 - **`/first-aid`.** Shows this session's events in order: what first aid noticed (time, tool,
@@ -70,7 +72,9 @@ Short notes, rarely. No note is added:
 
 Offered and queued notes are recorded in the event log, and so are notes held back by the
 cooldown, the rate-limit rule, the settings, an unannotatable result or a superseding note,
-with the reason.
+with the reason. "Offered" means first aid handed the note to Hermes: another plugin's
+transform, a turn another plugin vetoes, or a route that skips this context can still keep it
+from the agent.
 
 ## Settings
 
@@ -95,10 +99,12 @@ section, so if you change core's thresholds, set these to match.
 
 - **It changes failed tool results, rarely.** On a threshold crossing it returns the failed
   result with the note added: a JSON object is re-serialized with one extra key, text gets one
-  appended line. The original content stays intact. Successful results are never changed, and
+  appended line. The original content stays intact, apart from what re-serializing JSON
+  normalizes (whitespace, escapes, duplicate keys). Successful results are never changed, and
   nothing is ever blocked.
 - **It reads every tool result.** The hook sees each tool result and its arguments, in memory, to
-  classify the result and fingerprint the call (a sha256 of the arguments). It stores neither.
+  classify the result and fingerprint the call. For counting it keeps sha256 hashes of the
+  arguments and of successful results, never their text.
   The logbook tool reads only its own arguments.
 - **First string wins.** Hermes calls `transform_tool_result` plugins in load order and keeps the
   first string returned. First aid returns one only on a crossing; on that call it can override,
@@ -134,7 +140,8 @@ section, so if you change core's thresholds, set these to match.
 - **Memory only.** The event log holds time, signal, tool name, count, practice and outcome per
   session, plus the logbook tool's short note (at most 160 characters, written by the agent).
   It never holds tool arguments or result bodies. It is bounded (200 events per session, 256
-  sessions), writes nothing to disk, and resets when Hermes restarts or reloads plugins. If a
+  sessions), and resets when Hermes restarts or reloads plugins. The plugin writes nothing to
+  disk itself; the notes it adds become part of the transcript Hermes stores. If a
   compaction gives the session a new id (`compression.in_place: false`), counts, waiting notes
   and the log move to it. With
   `dashboard.turn_isolation` on (Desktop/TUI, off by default), the agent turns run in another
