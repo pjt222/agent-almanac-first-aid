@@ -102,6 +102,29 @@ def test_first_aid_status_reports_this_sessions_events_only(registered_context):
     assert "received no session id" in handler("", session_id="")
 
 
+def test_no_state_holds_tool_arguments_or_result_bodies(registered_context):
+    (hook,) = registered_context.hooks["transform_tool_result"]
+    first_aid = hook.__self__
+    secret_args = {"path": "ARGS-MARKER-7f3e.md"}
+    secret_error = '{"error": "RESULT-MARKER-9c1d not found"}'
+    secret_content = '{"content": "RESULT-MARKER-9c1d body"}'
+    for _ in range(3):
+        _fail(hook, args=secret_args, result=secret_error)  # in-result note
+        _fail(hook, tool_name="mcp__notes__read", args=secret_args, result=secret_error, session_id="s-2")
+    for _ in range(3):
+        _fail(hook, args=secret_args, result=secret_content, session_id="s-3")  # repeat note
+    state = repr((first_aid.triage._turns, first_aid.triage._last_offered, first_aid.next_turn._pending,
+                  first_aid.events._sessions))
+    handler = registered_context.commands["first-aid"]["handler"]
+    reports = "".join(handler("", session_id=session_id) for session_id in ("s-1", "s-2", "s-3"))
+    # Not a vacuous pass: an offered note, a queued note and a waiting repeat note all exist.
+    assert first_aid.events.events("s-1") and first_aid.events.events("s-2")
+    assert set(first_aid.next_turn._pending) == {"s-2", "s-3"}
+    for marker in ("ARGS-MARKER-7f3e", "RESULT-MARKER-9c1d"):
+        assert marker not in state
+        assert marker not in reports
+
+
 def test_settings_reach_triage(plugin_package, recording_context_class):
     context = recording_context_class(settings={"notes_enabled": False})
     plugin_package.register(context)
