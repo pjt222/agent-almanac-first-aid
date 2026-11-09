@@ -254,7 +254,7 @@ def build_note(signal: str, tool_name: str, count: int) -> str:
         observed = f"{shown_tool} failed {count} times with the same arguments."
         advice = "pause once and re-read the error before the next step"
     else:
-        observed = f"{shown_tool} failed {count} times in a row."
+        observed = f"{shown_tool} failed {count} times this turn."
         advice = "reframe the approach instead of varying the call"
     return (
         f"{observed} The {kit.PLUGIN_NAME} plugin suggests the {practice} practice: {advice}. "

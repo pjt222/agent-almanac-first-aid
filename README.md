@@ -22,7 +22,7 @@ matching practice and how to load it. The agent decides whether to use it.
   | Signal | Default threshold (core's) | Practice |
   |---|---|---|
   | The same tool fails with identical arguments | 2nd failure | `breathe` |
-  | One tool fails several times in a row | 3rd failure | `redirect` |
+  | One tool fails several times in one turn, with any arguments | 3rd failure | `redirect` |
 
   A JSON error gains a `first_aid` key, for example:
 
@@ -78,7 +78,7 @@ plugins:
       settings:
         notes_enabled: true              # false: keep the event log and /first-aid, add no notes
         exact_failure_threshold: 2       # identical-argument failures before a note
-        same_tool_failure_threshold: 3   # failures of one tool in a row before a note
+        same_tool_failure_threshold: 3   # failures of one tool in one turn before a note
         cooldown_seconds: 300            # per session, per kind of note
         repeat_threshold: 3              # identical successful results for one call in a turn
 ```

@@ -27,7 +27,7 @@ config_schema:
   same_tool_failure_threshold:
     type: int
     default: 3
-    description: Failures of one tool in a row before a note (Hermes core warns at 3 by default).
+    description: Failures of one tool in one turn before a note (Hermes core warns at 3 by default).
   cooldown_seconds:
     type: int
     default: 300

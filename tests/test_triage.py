@@ -118,7 +118,20 @@ def test_same_tool_streak_gets_a_redirect_note_on_the_third_failure(make, triage
     assert observe(tracker, "read_file", {"path": "b"}, NOT_FOUND) is None
     crossing = observe(tracker, "read_file", {"path": "c"}, NOT_FOUND)
     assert (crossing.signal, crossing.practice, crossing.outcome) == (triage.SAME_TOOL_FAILURE, "redirect", "offered")
+    assert json.loads(crossing.transformed_result)["first_aid"].startswith("read_file failed 3 times this turn.")
     assert observe(tracker, "read_file", {"path": "d"}, NOT_FOUND) is None
+
+
+def test_same_tool_count_survives_other_tools_succeeding_in_between(make, triage):
+    # Core resets the same-tool count only on a success of that tool or a progress-reset tool,
+    # so the note must not claim the failures were consecutive.
+    tracker = make()
+    observe(tracker, "read_file", {"path": "a"}, NOT_FOUND)
+    observe(tracker, "search_files", {"pattern": "x"}, json.dumps({"total_count": 0, "files": []}))
+    observe(tracker, "read_file", {"path": "b"}, NOT_FOUND)
+    crossing = observe(tracker, "read_file", {"path": "c"}, NOT_FOUND)
+    assert crossing.signal == triage.SAME_TOOL_FAILURE
+    assert "this turn" in json.loads(crossing.transformed_result)["first_aid"]
 
 
 def test_one_note_per_tool_per_streak(make):

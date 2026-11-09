@@ -20,7 +20,7 @@ _USAGE = "Usage: /first-aid [status|kit|help]"
 
 _SIGNAL_TEXT = {
     triage.EXACT_FAILURE: "{tool} failed {count}x with the same arguments",
-    triage.SAME_TOOL_FAILURE: "{tool} failed {count}x in a row",
+    triage.SAME_TOOL_FAILURE: "{tool} failed {count}x this turn",
     next_turn.COMPACTION: "context compacted ({tool})",
     next_turn.REPEAT: "{tool} returned the same result {count}x",
 }
