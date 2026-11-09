@@ -232,8 +232,6 @@ PRACTICE_FOR_SIGNAL = {
 NOTE_KEY = "first_aid"
 TEXT_NOTE_PREFIX = "\n\n[first aid] "
 NOTE_MAX_CHARS = 300
-# Longer tool names are cut, so the longest note stays within NOTE_MAX_CHARS.
-_TOOL_NAME_MAX_CHARS = 35
 
 # The logbook tool's own failures are never annotated with a note about themselves.
 OWN_TOOL_NAMES: frozenset[str] = frozenset({logbook_tool.TOOL_NAME})
@@ -244,23 +242,40 @@ _MAX_SESSIONS = 64
 Signature = tuple[str, str]
 
 
+def fit_note(render: Callable[[str], str], tool_name: str, limit: int = NOTE_MAX_CHARS) -> str:
+    """Render a note naming tool_name, cutting the name until the note fits within limit."""
+    note = render(tool_name)
+    if len(note) <= limit:
+        return note
+    keep = len(tool_name) - (len(note) - limit) - 3
+    if keep >= 8:
+        note = render(tool_name[:keep] + "...")
+        if len(note) <= limit:
+            return note
+    note = render(tool_name[:5] + "...")
+    return note if len(note) <= limit else note[:limit - 3] + "..."
+
+
 def build_note(signal: str, tool_name: str, count: int) -> str:
     """The one line first aid adds: who says it, what was observed, which practice, how to load
     it, and where to log the outcome (user decision 2026-11-09: without that, the live test's
     agent changed approach but never logged)."""
-    shown_tool = tool_name if len(tool_name) <= _TOOL_NAME_MAX_CHARS else tool_name[:_TOOL_NAME_MAX_CHARS - 3] + "..."
     practice = PRACTICE_FOR_SIGNAL[signal]
     if signal == EXACT_FAILURE:
-        observed = f"{shown_tool} failed {count} times with the same arguments."
+        observed = "{tool} failed " + f"{count} times with the same arguments."
         advice = "pause once and re-read the error before the next step"
     else:
-        observed = f"{shown_tool} failed {count} times this turn."
+        observed = "{tool} failed " + f"{count} times this turn."
         advice = "reframe the approach instead of varying the call"
-    return (
-        f"{observed} The {kit.PLUGIN_NAME} plugin suggests the {practice} practice: {advice}. "
-        f"Load it with skill_view(\"{kit.qualified_name(practice)}\"), then log how it went with "
-        f"{logbook_tool.TOOL_NAME}."
-    )
+
+    def render(shown_tool: str) -> str:
+        return (
+            f"{observed.format(tool=shown_tool)} The {kit.PLUGIN_NAME} plugin suggests the {practice} "
+            f"practice: {advice}. Load it with skill_view(\"{kit.qualified_name(practice)}\"), then log "
+            f"how it went with {logbook_tool.TOOL_NAME}."
+        )
+
+    return fit_note(render, tool_name)
 
 
 def annotate(tool_name: str, result: str, note: str) -> Optional[str]:

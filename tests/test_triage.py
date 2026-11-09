@@ -345,12 +345,19 @@ def test_notes_are_short_and_name_their_source_and_practice(triage, tool_name):
         assert note.endswith("then log how it went with first_aid_log.")
 
 
-def test_tool_names_up_to_the_cap_are_shown_whole(triage):
-    tool_name = "mcp__" + "x" * (triage._TOOL_NAME_MAX_CHARS - 5)
+def test_tool_names_that_fit_are_shown_whole(triage):
+    tool_name = "mcp__" + "x" * 30
     for signal in triage.PRACTICE_FOR_SIGNAL:
         note = triage.build_note(signal, tool_name, 999)
         assert note.startswith(tool_name + " failed")
         assert len(note) <= triage.NOTE_MAX_CHARS
+
+
+@pytest.mark.parametrize("count", [2, 10 ** 6, 10 ** 40])
+def test_every_note_fits_whatever_the_count_and_name(triage, count):
+    for signal in triage.PRACTICE_FOR_SIGNAL:
+        for tool_name in ("read_file", "x" * 300):
+            assert len(triage.build_note(signal, tool_name, count)) <= triage.NOTE_MAX_CHARS
 
 
 def test_note_wording_never_reads_as_throttled(triage):
