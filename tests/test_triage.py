@@ -188,17 +188,30 @@ def test_rate_limited_failures_are_never_annotated(make, triage):
 
 
 @pytest.mark.parametrize("tool_name", ["mcp__notes__read", "mcp_filesystem_read_file", "browser_click"])
-def test_tools_hermes_wraps_as_untrusted_get_their_note_next_message(triage, clock, tool_name):
-    deferred = []
-    tracker = triage.Triage(triage.TriageConfig(), clock=clock,
-                            on_deferred=lambda *call: deferred.append(call))
+def test_tools_hermes_wraps_as_untrusted_get_their_note_next_message(make, triage, tool_name):
+    tracker = make()
     observe(tracker, tool_name, {"q": "a"}, NOT_FOUND)
     crossing = observe(tracker, tool_name, {"q": "a"}, NOT_FOUND)
     assert crossing.signal == triage.EXACT_FAILURE
     assert crossing.outcome == triage.QUEUED_OUTCOME
     assert crossing.transformed_result is None  # the result itself is never changed
-    assert deferred == [("s-1", triage.EXACT_FAILURE, tool_name, 2)]
+    assert not tracker.cooldowns.active("s-1", triage.EXACT_FAILURE)  # stamped only on delivery
     assert observe(tracker, tool_name, {"q": "a"}, NOT_FOUND) is None  # once per streak
+
+
+@pytest.mark.parametrize("case, expected", [
+    ("throttled", "suppressed:rate-limited"),
+    ("notes-off", "suppressed:notes-disabled"),
+    ("cooling", "suppressed:cooldown"),
+])
+def test_an_untrusted_tool_obeys_the_same_rules_before_queueing(make, triage, case, expected):
+    tracker = make(notes_enabled=(case != "notes-off"))
+    result = THROTTLED if case == "throttled" else NOT_FOUND
+    if case == "cooling":
+        tracker.cooldowns.stamp("s-1", triage.EXACT_FAILURE)
+    crossings = [observe(tracker, "mcp__notes__read", {"q": "a"}, result) for _ in range(3)]
+    decided = [crossing for crossing in crossings if crossing is not None]
+    assert [crossing.outcome for crossing in decided] == [expected]
 
 
 def test_untrusted_tool_predicate_mirrors_core(triage):

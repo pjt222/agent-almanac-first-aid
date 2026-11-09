@@ -364,8 +364,42 @@ class _TurnState:
 
 
 RepeatCallback = Callable[[str, str, int], None]  # (session_id, tool_name, count)
-DeferredCallback = Callable[[str, str, str, int], None]  # (session_id, signal, tool_name, count)
 QUEUED_OUTCOME = "queued:next-message"
+
+
+class Cooldowns:
+    """When each kind of note last reached the agent, per session, shared by the in-result and
+    the next-message channel. A note counts only once it is delivered (user decision
+    2026-11-09), so a waiting note that is displaced never holds the cooldown. Its own lock is
+    always taken last and calls nothing, so it cannot deadlock with the callers' locks."""
+
+    def __init__(self, cooldown_seconds: int, clock: Callable[[], float] = time.monotonic) -> None:
+        self._seconds = cooldown_seconds
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._last: OrderedDict[str, dict[str, float]] = OrderedDict()
+
+    def active(self, session_id: str, signal: str) -> bool:
+        with self._lock:
+            last = self._last.get(session_id, {}).get(signal)
+            return last is not None and self._clock() - last < self._seconds
+
+    def stamp(self, session_id: str, signal: str) -> None:
+        with self._lock:
+            self._last.setdefault(session_id, {})[signal] = self._clock()
+            self._last.move_to_end(session_id)
+            while len(self._last) > _MAX_SESSIONS:
+                self._last.popitem(last=False)
+
+    def migrate(self, old_session_id: str, new_session_id: str) -> None:
+        if not old_session_id or not new_session_id or old_session_id == new_session_id:
+            return
+        with self._lock:
+            old = self._last.pop(old_session_id, None)
+            if old:
+                merged = self._last.setdefault(new_session_id, {})
+                for signal, stamped_at in old.items():
+                    merged[signal] = max(stamped_at, merged.get(signal, stamped_at))
 
 
 class Triage:
@@ -376,20 +410,18 @@ class Triage:
     """
 
     def __init__(self, config: TriageConfig = TriageConfig(), clock: Callable[[], float] = time.monotonic,
-                 on_repeat: Optional[RepeatCallback] = None,
-                 on_deferred: Optional[DeferredCallback] = None) -> None:
+                 on_repeat: Optional[RepeatCallback] = None, cooldowns: Optional[Cooldowns] = None) -> None:
         self.config = config
-        self._clock = clock
         self._on_repeat = on_repeat
-        self._on_deferred = on_deferred
+        self.cooldowns = cooldowns if cooldowns is not None else Cooldowns(config.cooldown_seconds, clock)
         self._lock = threading.Lock()
         self._turns: OrderedDict[tuple[str, str], _TurnState] = OrderedDict()
-        self._last_offered: OrderedDict[str, dict[str, float]] = OrderedDict()
 
     def observe(self, *, tool_name: str, args: Any, result: Any, session_id: str, turn_id: str,
                 tool_call_id: str = "") -> Optional[Crossing]:
         """Count one tool result. Returns a Crossing on the first warning of a failure streak,
-        else None. A run of identical successful results reaching repeat_threshold is reported
+        else None; a QUEUED_OUTCOME crossing is for the caller to hand to the next-message
+        channel. A run of identical successful results reaching repeat_threshold is reported
         to on_repeat instead, once per signature per turn, after the lock is released."""
         if not session_id or not turn_id or "#" in (tool_call_id or ""):
             # No key to count under (execute_code RPC, MCP transport), or one entry of a
@@ -410,27 +442,21 @@ class Triage:
                 crossing = self._count_failure(turn, tool_name, signature, throttled, result, session_id)
             else:
                 repeat_count = self._count_success(turn, tool_name, signature, landed, result)
-        # Callbacks run after the lock is released, so the two modules' locks never nest.
-        if crossing is not None and crossing.outcome == QUEUED_OUTCOME and self._on_deferred is not None:
-            self._on_deferred(session_id, crossing.signal, tool_name, crossing.count)
+        # The callback runs after the lock is released, so the two modules' locks never nest.
         if repeat_count and self._on_repeat is not None:
             self._on_repeat(session_id, tool_name, repeat_count)
         return crossing
 
     def migrate_session(self, old_session_id: str, new_session_id: str) -> None:
-        """Carry counts and cooldowns over when compaction rotates the session id
-        (compression.in_place: false). Core's counter lives on the agent and keeps counting."""
+        """Carry counts over when compaction rotates the session id (compression.in_place:
+        false). Core's counter lives on the agent and keeps counting. The shared Cooldowns is
+        migrated by its owner."""
         if not old_session_id or not new_session_id or old_session_id == new_session_id:
             return
         with self._lock:
             for key in [key for key in self._turns if key[0] == old_session_id]:
                 state = self._turns.pop(key)
                 self._turns.setdefault((new_session_id, key[1]), state)
-            old_offered = self._last_offered.pop(old_session_id, None)
-            if old_offered:
-                merged = self._last_offered.setdefault(new_session_id, {})
-                for signal, offered_at in old_offered.items():
-                    merged[signal] = max(offered_at, merged.get(signal, offered_at))
 
     # -- counting (mirrors ToolCallGuardrailController.after_call) --
 
@@ -512,26 +538,18 @@ class Triage:
             return crossing("suppressed:rate-limited")
         if not self.config.notes_enabled:
             return crossing("suppressed:notes-disabled")
-        now = self._clock()
-        last = self._last_offered.get(session_id, {}).get(signal)
-        if last is not None and now - last < self.config.cooldown_seconds:
+        if self.cooldowns.active(session_id, signal):
             return crossing("suppressed:cooldown")
         if is_untrusted_tool(tool_name):
             # Not inside the untrusted-data wrapper: the note waits for the next user message.
-            self._mark_noted(turn, session_id, tool_name, signal, now)
+            # The cooldown is stamped only if and when it is delivered.
+            turn.noted_tools.add(tool_name)
             return crossing(QUEUED_OUTCOME)
         if not isinstance(result, str):
             return crossing("suppressed:unsupported-result")
         transformed = annotate(tool_name, result, build_note(signal, tool_name, count))
         if transformed is None:
             return crossing("suppressed:unsupported-result")
-        self._mark_noted(turn, session_id, tool_name, signal, now)
-        return crossing("offered", transformed)
-
-    def _mark_noted(self, turn: _TurnState, session_id: str, tool_name: str, signal: str, now: float) -> None:
         turn.noted_tools.add(tool_name)
-        offered = self._last_offered.setdefault(session_id, {})
-        offered[signal] = now
-        self._last_offered.move_to_end(session_id)
-        while len(self._last_offered) > _MAX_SESSIONS:
-            self._last_offered.popitem(last=False)
+        self.cooldowns.stamp(session_id, signal)
+        return crossing("offered", transformed)

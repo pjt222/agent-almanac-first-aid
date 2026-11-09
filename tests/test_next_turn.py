@@ -204,12 +204,63 @@ def test_the_waiting_slot_goes_to_compaction_then_failure_then_repeat(hooks, rep
     assert "web_search failed 2x with the same arguments -> breathe (not offered: superseded)" in lines
 
 
-def test_a_deferred_failure_note_counts_toward_the_cooldown(hooks, report):
+def test_a_waiting_note_holds_no_cooldown_and_never_doubles_a_delivered_one(hooks, report):
     tool(hooks, NOT_FOUND, tool_name="mcp__notes__read")
-    tool(hooks, NOT_FOUND, tool_name="mcp__notes__read")
+    tool(hooks, NOT_FOUND, tool_name="mcp__notes__read")  # breathe queued, not yet seen
     tool(hooks, NOT_FOUND, turn_id="t-2")
-    assert tool(hooks, NOT_FOUND, turn_id="t-2") is None  # same kind, same session, within 300 s
-    assert "read_file failed 2x with the same arguments -> breathe (not offered: cooldown)" in report()
+    assert tool(hooks, NOT_FOUND, turn_id="t-2") is not None  # breathe reaches the agent now
+    assert next_message(hooks) is None  # the waiting breathe would be a second one within 300 s
+    lines = report()
+    assert "mcp__notes__read failed 2x with the same arguments -> breathe (queued for the next message)" in lines
+    assert "read_file failed 2x with the same arguments -> breathe (offered)" in lines
+    assert "mcp__notes__read failed 2x with the same arguments -> breathe (not offered: cooldown)" in lines
+
+
+def test_a_displaced_note_holds_no_cooldown(hooks, report):
+    tool(hooks, NOT_FOUND, tool_name="mcp__notes__read")
+    tool(hooks, NOT_FOUND, tool_name="mcp__notes__read")
+    compaction(hooks)  # displaces the waiting breathe
+    assert "center" in next_message(hooks)["context"]
+    tool(hooks, NOT_FOUND, turn_id="t-2")
+    assert tool(hooks, NOT_FOUND, turn_id="t-2") is not None  # breathe was never delivered
+
+
+def test_a_late_delivery_starts_the_cooldown_then(plugin_package):
+    triage, next_turn, event_log = plugin_package.triage, plugin_package.next_turn, plugin_package.event_log
+    now = [0.0]
+    cooldowns = triage.Cooldowns(300, clock=lambda: now[0])
+    notes = next_turn.NextTurnNotes(triage.TriageConfig(), event_log.EventLog(), cooldowns)
+    notes.on_failure("s-1", triage.EXACT_FAILURE, "mcp__notes__read", 2)
+    now[0] = 400.0
+    assert notes.take("s-1") is not None
+    now[0] = 500.0
+    assert cooldowns.active("s-1", triage.EXACT_FAILURE)  # 100 s after delivery, not 500 s after queueing
+
+
+def test_a_note_refused_by_a_waiting_one_is_logged_as_refused_only(hooks, report):
+    compaction(hooks)
+    tool(hooks, NOT_FOUND, tool_name="mcp__notes__read")
+    tool(hooks, NOT_FOUND, tool_name="mcp__notes__read")
+    lines = report()
+    assert "mcp__notes__read failed 2x with the same arguments -> breathe (not offered: slot-taken)" in lines
+    assert "breathe (queued for the next message)" not in lines
+
+
+@pytest.mark.parametrize("failure_first", [True, False])
+def test_a_failure_note_outranks_a_repeat_note(hooks, report, failure_first):
+    def repeat():
+        for _ in range(3):
+            tool(hooks, SAME_CONTENT)
+
+    def failure():
+        tool(hooks, NOT_FOUND, tool_name="mcp__notes__read")
+        tool(hooks, NOT_FOUND, tool_name="mcp__notes__read")
+
+    for step in ((failure, repeat) if failure_first else (repeat, failure)):
+        step()
+    assert "agent-almanac-first-aid:breathe" in next_message(hooks)["context"]
+    expected = "slot-taken" if failure_first else "superseded"
+    assert f"read_file returned the same result 3x -> heal (not offered: {expected})" in report()
 
 
 # --- note text ------------------------------------------------------------------------

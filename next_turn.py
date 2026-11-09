@@ -17,10 +17,9 @@ repeat, and a displaced note is logged as superseded. No Hermes imports.
 from __future__ import annotations
 
 import threading
-import time
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Optional
 
 from . import event_log, kit, logbook_tool
 from . import triage
@@ -97,16 +96,20 @@ class _Pending:
 
 
 class NextTurnNotes:
-    """Per-session pending notes, under one lock; events are recorded outside it."""
+    """Per-session pending notes, under one lock; events are recorded outside it.
 
-    def __init__(self, config: TriageConfig, events: event_log.EventLog,
-                 clock: Callable[[], float] = time.monotonic) -> None:
+    Every note that enters the queue is logged as queued, and then exactly once more: offered,
+    superseded (displaced by a higher-priority note), slot-taken (refused because a note of
+    equal or higher priority was waiting), cooldown (the same kind reached the agent since) or
+    evicted. Several compactions before one message coalesce into one note.
+    """
+
+    def __init__(self, config: TriageConfig, events: event_log.EventLog, cooldowns: triage.Cooldowns) -> None:
         self.config = config
         self._events = events
-        self._clock = clock
+        self._cooldowns = cooldowns
         self._lock = threading.Lock()
         self._pending: OrderedDict[str, _Pending] = OrderedDict()
-        self._last_offered: OrderedDict[str, dict[str, float]] = OrderedDict()
 
     # -- queueing --
 
@@ -116,7 +119,7 @@ class NextTurnNotes:
         detail = kind or "unknown"
         if detail not in NOTED_COMPACTION_KINDS:
             # For a compaction event, the log's tool_name field holds the compaction kind.
-            self._record(session_id, COMPACTION, detail, 0, "suppressed:minor-compaction")
+            self._record(session_id, _Pending(COMPACTION, detail, 0, ""), "suppressed:minor-compaction")
             return
         self._queue(session_id, _Pending(COMPACTION, detail, 0, build_compaction_note()))
 
@@ -126,72 +129,83 @@ class NextTurnNotes:
         self._queue(session_id, _Pending(REPEAT, tool_name, count, build_repeat_note(tool_name, count)))
 
     def on_failure(self, session_id: str, signal: str, tool_name: str, count: int) -> None:
-        """A failure streak triage already decided on (once per streak, cooldown, settings)
-        whose note cannot go into the tool result."""
+        """A failure streak triage decided on (once per streak, cooldown, settings) whose
+        note cannot go into the tool result, because Hermes wraps that tool's results."""
         if not session_id:
             return
-        self._queue(session_id, _Pending(signal, tool_name, count, build_failure_note(signal, tool_name, count)),
-                    already_decided=True)
+        self._queue(session_id, _Pending(signal, tool_name, count, build_failure_note(signal, tool_name, count)))
 
-    def _queue(self, session_id: str, pending: _Pending, already_decided: bool = False) -> None:
-        if not already_decided and not self.config.notes_enabled:
-            self._record(session_id, pending.signal, pending.tool_name, pending.count, "suppressed:notes-disabled")
+    def _queue(self, session_id: str, pending: _Pending) -> None:
+        if not self.config.notes_enabled:
+            self._record(session_id, pending, "suppressed:notes-disabled")
             return
-        displaced: Optional[_Pending] = None
+        if self._cooldowns.active(session_id, pending.signal):
+            self._record(session_id, pending, "suppressed:cooldown")
+            return
+        outcomes: list[tuple[_Pending, str]] = []
         with self._lock:
-            cooling = not already_decided and self._cooling_down(session_id, pending.signal)
-            if not cooling:
-                current = self._pending.get(session_id)
-                if current is None or _PRIORITY[pending.signal] > _PRIORITY[current.signal]:
-                    self._pending[session_id] = pending
-                    displaced = current
-                elif not (pending.signal == current.signal == COMPACTION):
-                    displaced = pending  # several compactions are one event and just coalesce
-                self._pending.move_to_end(session_id)
-                while len(self._pending) > _MAX_SESSIONS:
-                    self._pending.popitem(last=False)
-        if cooling:
-            self._record(session_id, pending.signal, pending.tool_name, pending.count, "suppressed:cooldown")
-        if displaced is not None:
-            self._record(session_id, displaced.signal, displaced.tool_name, displaced.count, "suppressed:superseded")
+            current = self._pending.get(session_id)
+            if current is not None and pending.signal == current.signal == COMPACTION:
+                pass  # several compactions before one message are one event
+            elif current is None or _PRIORITY[pending.signal] > _PRIORITY[current.signal]:
+                self._pending[session_id] = pending
+                outcomes.append((pending, triage.QUEUED_OUTCOME))
+                if current is not None:
+                    outcomes.append((current, "suppressed:superseded"))
+            else:
+                outcomes.append((pending, "suppressed:slot-taken"))
+            self._pending.move_to_end(session_id)
+            evicted = []
+            while len(self._pending) > _MAX_SESSIONS:
+                evicted.append(self._pending.popitem(last=False))
+        for note, outcome in outcomes:
+            self._record(session_id, note, outcome)
+        for evicted_session, note in evicted:
+            self._record(evicted_session, note, "suppressed:evicted")
 
     # -- delivery --
 
     def take(self, session_id: str) -> Optional[str]:
-        """The note for the next user message of this session, if one is waiting."""
+        """The note for the next user message of this session, if one is waiting. A note of a
+        kind that reached the agent meanwhile (in a tool result) is dropped, not delivered."""
         if not session_id:
             return None
         with self._lock:
             pending = self._pending.pop(session_id, None)
-            if pending is None:
-                return None
-            offered = self._last_offered.setdefault(session_id, {})
-            offered[pending.signal] = self._clock()
-            self._last_offered.move_to_end(session_id)
-            while len(self._last_offered) > _MAX_SESSIONS:
-                self._last_offered.popitem(last=False)
-        self._record(session_id, pending.signal, pending.tool_name, pending.count, "offered")
+        if pending is None:
+            return None
+        if self._cooldowns.active(session_id, pending.signal):
+            self._record(session_id, pending, "suppressed:cooldown")
+            return None
+        self._cooldowns.stamp(session_id, pending.signal)
+        self._record(session_id, pending, "offered")
         return pending.note
 
     def migrate(self, old_session_id: str, new_session_id: str) -> None:
+        """Move a waiting note to the session's new id; if one waits there too, priority decides."""
         if not old_session_id or not new_session_id or old_session_id == new_session_id:
             return
         with self._lock:
-            pending = self._pending.pop(old_session_id, None)
-            if pending is not None:
-                self._pending.setdefault(new_session_id, pending)
-            old_offered = self._last_offered.pop(old_session_id, None)
-            if old_offered:
-                merged = self._last_offered.setdefault(new_session_id, {})
-                for signal, offered_at in old_offered.items():
-                    merged[signal] = max(offered_at, merged.get(signal, offered_at))
+            moved = self._pending.pop(old_session_id, None)
+        if moved is not None:
+            self._queue_moved(new_session_id, moved)
+
+    def _queue_moved(self, session_id: str, pending: _Pending) -> None:
+        # Already logged as queued under the old id, whose events migrate with it.
+        outcomes: list[tuple[_Pending, str]] = []
+        with self._lock:
+            current = self._pending.get(session_id)
+            if current is None or _PRIORITY[pending.signal] > _PRIORITY[current.signal]:
+                self._pending[session_id] = pending
+                if current is not None:
+                    outcomes.append((current, "suppressed:superseded"))
+            else:
+                outcomes.append((pending, "suppressed:slot-taken"))
+        for note, outcome in outcomes:
+            self._record(session_id, note, outcome)
 
     # -- helpers --
 
-    def _cooling_down(self, session_id: str, signal: str) -> bool:
-        last = self._last_offered.get(session_id, {}).get(signal)
-        return last is not None and self._clock() - last < self.config.cooldown_seconds
-
-    def _record(self, session_id: str, signal: str, tool_name: str, count: int, outcome: str) -> None:
-        self._events.record(session_id, signal=signal, tool_name=tool_name, count=count,
-                            practice=PRACTICE_FOR_SIGNAL[signal], outcome=outcome)
+    def _record(self, session_id: str, note: _Pending, outcome: str) -> None:
+        self._events.record(session_id, signal=note.signal, tool_name=note.tool_name, count=note.count,
+                            practice=PRACTICE_FOR_SIGNAL[note.signal], outcome=outcome)

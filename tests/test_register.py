@@ -113,7 +113,7 @@ def test_no_state_holds_tool_arguments_or_result_bodies(registered_context):
         _fail(hook, tool_name="mcp__notes__read", args=secret_args, result=secret_error, session_id="s-2")
     for _ in range(3):
         _fail(hook, args=secret_args, result=secret_content, session_id="s-3")  # repeat note
-    state = repr((first_aid.triage._turns, first_aid.triage._last_offered, first_aid.next_turn._pending,
+    state = repr((first_aid.triage._turns, first_aid.cooldowns._last, first_aid.next_turn._pending,
                   first_aid.events._sessions))
     handler = registered_context.commands["first-aid"]["handler"]
     reports = "".join(handler("", session_id=session_id) for session_id in ("s-1", "s-2", "s-3"))

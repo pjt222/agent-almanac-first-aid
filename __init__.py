@@ -32,9 +32,10 @@ class FirstAid:
 
     def __init__(self, config: triage.TriageConfig) -> None:
         self.events = event_log.EventLog()
-        self.next_turn = next_turn.NextTurnNotes(config, self.events)
-        self.triage = triage.Triage(config, on_repeat=self.next_turn.on_repeat,
-                                    on_deferred=self.next_turn.on_failure)
+        # One cooldown store for both channels, stamped when a note reaches the agent.
+        self.cooldowns = triage.Cooldowns(config.cooldown_seconds)
+        self.next_turn = next_turn.NextTurnNotes(config, self.events, self.cooldowns)
+        self.triage = triage.Triage(config, on_repeat=self.next_turn.on_repeat, cooldowns=self.cooldowns)
 
     def on_post_compaction(self, session_id: str = "", old_session_id: str = "", kind: str = "",
                            **kwargs: Any) -> None:
@@ -43,8 +44,9 @@ class FirstAid:
             if old_session_id and old_session_id != session_id:
                 # compression.in_place: false rotates the session id; carry the state across.
                 self.triage.migrate_session(old_session_id, session_id)
-                self.next_turn.migrate(old_session_id, session_id)
+                self.cooldowns.migrate(old_session_id, session_id)
                 self.events.migrate(old_session_id, session_id)
+                self.next_turn.migrate(old_session_id, session_id)
             self.next_turn.on_compaction(session_id, kind)
         except Exception:
             logger.debug("%s: post_compaction failed", kit.PLUGIN_NAME, exc_info=True)
@@ -71,6 +73,10 @@ class FirstAid:
             crossing = self.triage.observe(tool_name=tool_name, args=args, result=result,
                                            session_id=session_id, turn_id=turn_id, tool_call_id=tool_call_id)
             if crossing is None:
+                return None
+            if crossing.outcome == triage.QUEUED_OUTCOME:
+                # The next-message channel logs the note: queued, then what became of it.
+                self.next_turn.on_failure(session_id, crossing.signal, crossing.tool_name, crossing.count)
                 return None
             self.events.record(session_id, signal=crossing.signal, tool_name=crossing.tool_name,
                                count=crossing.count, practice=crossing.practice, outcome=crossing.outcome)
