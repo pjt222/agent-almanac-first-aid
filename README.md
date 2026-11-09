@@ -171,6 +171,8 @@ warnings off, set `notes_enabled: false` too.
 
 `scripts/sync_kit.py` is a maintainer tool, run by hand to copy the kit from agent-almanac at a
 pinned commit. The plugin never imports or runs it, and nothing is fetched or updated at runtime.
+`tests/compare_with_core.py` is another, run by hand against a Hermes checkout: it checks the
+copied classifier and counting against core's own functions, call by call.
 
 ## License
 
