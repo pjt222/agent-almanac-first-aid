@@ -125,12 +125,14 @@ section, so if you change core's thresholds, set these to match.
 - **Context.** The kit adds eight rows to the agent's skill index (descriptions under 60
   characters each) and nine slash commands. A note is under 300 characters, once per streak or
   event.
-  The `first_aid_log` tool is a plugin tool, so Hermes's tool search (on by default) defers it:
-  the model sees its name and a short description in the tool listing and fetches the full
-  schema, about 800 characters of JSON, when it wants to call it. Because one deferrable tool is
-  enough to switch tool search on, installing this plugin can switch it on in a profile that had
-  none. With `tool_search.enabled: off`, the schema is sent with every request instead. The
-  toolset `first_aid` is on by default; `hermes tools` can switch it off.
+  The `first_aid_log` tool is a plugin tool, so Hermes's tool search (on by default) defers it.
+  Measured with Hermes v0.22.7's own functions: where tool search is already on, as in a freshly
+  created profile (Hermes defers several of its own tools), the tool adds one line of about 95
+  characters to the deferred-tool listing, and its schema (815 characters of JSON) is fetched
+  only when the agent asks for it. In a profile with nothing else deferred, the tool alone
+  switches tool search on, which costs about 2,300 characters per request for the bridge tools
+  and the listing. With `tool_search.enabled: off`, the 815-character schema is sent with every
+  request instead. The toolset `first_aid` is on by default; `hermes tools` can switch it off.
 - No network calls, no LLM calls, no credentials, no Python dependencies, no background processes.
 
 `scripts/sync_kit.py` is a maintainer tool, run by hand to copy the kit from agent-almanac at a
