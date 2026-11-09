@@ -18,7 +18,8 @@ PACKAGE_UNDER_TEST = "agent_almanac_first_aid_under_test"
 class RecordingContext:
     """Stands in for Hermes's PluginContext: records what register() asks for."""
 
-    def __init__(self) -> None:
+    def __init__(self, settings: dict | None = None) -> None:
+        self.settings = dict(settings or {})
         self.skills: dict[str, Path] = {}
         self.skill_descriptions: dict[str, str] = {}
         self.commands: dict[str, dict] = {}
@@ -41,6 +42,10 @@ class RecordingContext:
     def register_hook(self, hook_name, callback, **kwargs):
         self.hooks.setdefault(hook_name, []).append(callback)
 
+    def get_config(self, key, default=None):
+        # Like Hermes: the manifest's schema defaults are NOT applied; unset keys return `default`.
+        return self.settings.get(key, default)
+
 
 @pytest.fixture(scope="session")
 def plugin_package():
@@ -54,6 +59,11 @@ def plugin_package():
     sys.modules[PACKAGE_UNDER_TEST] = module
     spec.loader.exec_module(module)
     return module
+
+
+@pytest.fixture()
+def recording_context_class():
+    return RecordingContext
 
 
 @pytest.fixture()

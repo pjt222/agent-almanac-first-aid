@@ -1,8 +1,11 @@
 name: agent-almanac-first-aid
-version: 0.1.0
+version: 0.2.0
 description: >-
   A first-aid kit for AI agents: eight agent-almanac welfare practices bundled as
-  skills, and /first-aid to list them with when to reach for each.
+  skills. When a tool keeps failing, adds one short line to the failed result naming
+  the matching practice; after a context compaction or repeated identical results, adds
+  one to the next user message. The agent can record what it applied with the
+  first_aid_log tool; /first-aid shows this session's notes and logbook, and the kit.
 author: Philipp Thoss
 manifest_version: 2
 api_version: 1
@@ -10,5 +13,26 @@ license: MIT
 homepage: https://github.com/pjt222/agent-almanac-first-aid
 tags: [welfare, skills, agent-almanac, first-aid]
 requires_hermes: ">=0.22.7"
-provides_tools: []
-provides_hooks: []
+provides_tools: [first_aid_log]
+provides_hooks: [transform_tool_result, post_compaction, pre_llm_call]
+config_schema:
+  notes_enabled:
+    type: bool
+    default: true
+    description: Add first-aid notes to failed tool results. Off keeps the event log and /first-aid.
+  exact_failure_threshold:
+    type: int
+    default: 2
+    description: Failures with identical arguments before a note (Hermes core warns at 2 by default).
+  same_tool_failure_threshold:
+    type: int
+    default: 3
+    description: Failures of one tool in one turn before a note (Hermes core warns at 3 by default).
+  cooldown_seconds:
+    type: int
+    default: 300
+    description: Minimum seconds between two notes of the same kind in one session.
+  repeat_threshold:
+    type: int
+    default: 3
+    description: Identical successful results for the same call in one turn before a next-message note.
