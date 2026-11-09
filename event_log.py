@@ -76,7 +76,3 @@ class EventLog:
             merged: deque[Event] = deque(old_events, maxlen=self._max_events)
             merged.extend(self._sessions.pop(new_session_id, ()))
             self._sessions[new_session_id] = merged
-
-    def most_recent_session(self) -> Optional[str]:
-        with self._lock:
-            return next(reversed(self._sessions), None)
