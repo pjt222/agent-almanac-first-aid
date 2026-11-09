@@ -11,7 +11,9 @@ No Hermes imports. The classification helpers and constants below are copied fro
 Hermes v0.22.7 (b200f5bc60); each block names what it mirrors. They are copied, not
 imported, because agent.tool_result_classification and agent.tool_guardrails are not
 on the public-import list that `hermes plugins validate` checks, and a private import
-draws a review warning. A differential check against core guards the copy.
+draws a review warning. The copy was compared with core's own functions at v0.22.7, call by
+call on random sequences, outside this repo (the tests never import Hermes); repeat that
+comparison whenever Hermes changes these modules.
 """
 
 from __future__ import annotations
