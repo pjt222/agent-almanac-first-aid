@@ -188,13 +188,17 @@ def test_rate_limited_failures_are_never_annotated(make, triage):
 
 
 @pytest.mark.parametrize("tool_name", ["mcp__notes__read", "mcp_filesystem_read_file", "browser_click"])
-def test_tools_hermes_wraps_as_untrusted_get_no_note(make, triage, tool_name):
-    tracker = make()
+def test_tools_hermes_wraps_as_untrusted_get_their_note_next_message(triage, clock, tool_name):
+    deferred = []
+    tracker = triage.Triage(triage.TriageConfig(), clock=clock,
+                            on_deferred=lambda *call: deferred.append(call))
     observe(tracker, tool_name, {"q": "a"}, NOT_FOUND)
     crossing = observe(tracker, tool_name, {"q": "a"}, NOT_FOUND)
     assert crossing.signal == triage.EXACT_FAILURE
-    assert crossing.outcome == "suppressed:untrusted-result"
-    assert crossing.transformed_result is None
+    assert crossing.outcome == triage.QUEUED_OUTCOME
+    assert crossing.transformed_result is None  # the result itself is never changed
+    assert deferred == [("s-1", triage.EXACT_FAILURE, tool_name, 2)]
+    assert observe(tracker, tool_name, {"q": "a"}, NOT_FOUND) is None  # once per streak
 
 
 def test_untrusted_tool_predicate_mirrors_core(triage):

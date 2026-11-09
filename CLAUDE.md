@@ -24,6 +24,10 @@ plugin's job is the *prescription*: the matching practice at a useful moment, pl
   the rare crossing, and disclose both the output change and that precedence.
   - **Never transform a successful result.** Core's no-progress and identical-call guards hash
     the post-transform result. Successful repeats belong to the next-turn channel.
+  - **Never annotate a result Hermes wraps as untrusted** (`web_search`, `web_extract`,
+    `browser_*`, `mcp_*`; `agent/tool_dispatch_helpers.py` `_is_untrusted_tool`): the wrapper tells
+    the model not to follow tool-invocation requests inside it. Their failure note goes to the
+    next user message instead (user decisions 2026-11-09).
   - **Never annotate a rate-limited result** (user decision 2026-11-09), and ignore failures of
     the tools core treats as failure-tolerant (`FAILURE_TOLERANT_TOOL_NAMES` in
     `agent/tool_guardrails.py`: terminal, execute_code, process_manage, process,

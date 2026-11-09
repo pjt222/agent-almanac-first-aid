@@ -31,16 +31,21 @@ matching practice and how to load it. The agent decides whether to use it.
   ```
 
   A plain-text error gains the same sentence on a new line starting with `[first aid]`.
-- **Next-message notes.** Two signals have no failed result to carry a note, so their note is
-  added to the next user message instead (`pre_llm_call`), opening with a label that says it
-  comes from this plugin, not from the user:
+- **Next-message notes.** Some notes cannot ride on a tool result, so they are added to the next
+  user message instead (`pre_llm_call`), opening with a label that says they come from this
+  plugin, not from the user:
 
   | Signal | Default threshold | Practice |
   |---|---|---|
   | The conversation context was compacted (summarized) | any compaction that rewrites it | `center` |
   | A tool returned the same successful result for the same call | 3rd time in one turn | `heal` |
+  | A failure streak of a tool Hermes wraps as untrusted (`web_search`, `web_extract`, `browser_*`, `mcp_*`) | as for other tools | `breathe` or `redirect` |
 
-  Successful results themselves are never changed: core's repeat detection hashes them.
+  Successful results themselves are never changed: core's repeat detection hashes them. Results
+  of untrusted tools are not changed either: Hermes wraps them in a block that tells the model
+  not to follow requests found inside it, so a note there would read like a prompt injection.
+  A run made of one message (`hermes chat -q`, cron) has no next message, so these notes never
+  arrive there.
 - **Logbook tool.** `first_aid_log` lets the agent record the practice it applied and how it
   went (`helped`, `partly`, `no_change`), with an optional short note.
 - **`/first-aid`.** Shows this session's events in order: what first aid noticed (time, tool,
@@ -56,17 +61,15 @@ Short notes, rarely. No note is added:
 - for tools whose failures are normal work, the ones core treats as failure-tolerant:
   `terminal`, `execute_code`, `process`, `process_manage`, `browser_navigate`, `web_extract`;
 - for results core classifies as rate-limited, where a retry after the wait is the right move;
-- for tools whose results Hermes wraps as untrusted external data (`web_search`, `web_extract`,
-  `browser_*`, `mcp_*`): the wrapper tells the model not to follow requests found inside it, so a
-  note there would read like a prompt injection. Core's own loop warning still lands;
 - for results it cannot annotate cleanly: JSON that is not an object, an object that already has
   a `first_aid` key, non-text results, or a note that would change how core classifies the result;
 - for routine compaction (micro-compaction, tool-result pruning), which is logged only;
-- for more than one next-message note at a time: one waits per session, and a compaction note
-  takes the place of a repeat note.
+- for more than one next-message note at a time: one waits per session, by priority compaction,
+  then failure, then repeat; a displaced note is logged as superseded.
 
-Offered notes are recorded in the event log, and so are notes held back by the cooldown, the
-rate-limit rule, the settings or an unannotatable result, with the reason.
+Offered and queued notes are recorded in the event log, and so are notes held back by the
+cooldown, the rate-limit rule, the settings, an unannotatable result or a superseding note,
+with the reason.
 
 ## Settings
 

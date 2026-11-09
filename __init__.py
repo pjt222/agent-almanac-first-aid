@@ -33,7 +33,8 @@ class FirstAid:
     def __init__(self, config: triage.TriageConfig) -> None:
         self.events = event_log.EventLog()
         self.next_turn = next_turn.NextTurnNotes(config, self.events)
-        self.triage = triage.Triage(config, on_repeat=self.next_turn.on_repeat)
+        self.triage = triage.Triage(config, on_repeat=self.next_turn.on_repeat,
+                                    on_deferred=self.next_turn.on_failure)
 
     def on_post_compaction(self, session_id: str = "", old_session_id: str = "", kind: str = "",
                            **kwargs: Any) -> None:
@@ -93,7 +94,8 @@ class FirstAid:
                 continue
             observed = _SIGNAL_TEXT.get(event.signal, "{tool}: " + event.signal).format(
                 tool=event.tool_name, count=event.count)
-            outcome = event.outcome.replace("suppressed:", "not offered: ")
+            outcome = event.outcome.replace("suppressed:", "not offered: ").replace(
+                triage.QUEUED_OUTCOME, "queued for the next message")
             lines.append(f"  {event.time_utc}  {observed} -> {event.practice} ({outcome})")
         return "\n".join(lines)
 

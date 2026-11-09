@@ -178,12 +178,49 @@ def test_repeat_threshold_is_configurable(plugin_package, recording_context_clas
     assert next_message(hooks) is not None
 
 
+# --- failures of tools Hermes wraps as untrusted -> breathe / redirect, next message -------
+
+def test_untrusted_tool_failure_note_waits_for_the_next_message(hooks, report):
+    assert tool(hooks, NOT_FOUND, tool_name="mcp__notes__read") is None
+    assert tool(hooks, NOT_FOUND, tool_name="mcp__notes__read") is None  # result unchanged
+    reply = next_message(hooks)
+    assert "Earlier, mcp__notes__read failed 2 times with the same arguments." in reply["context"]
+    assert "agent-almanac-first-aid:breathe" in reply["context"]
+    assert next_message(hooks) is None
+    lines = report()
+    assert "mcp__notes__read failed 2x with the same arguments -> breathe (queued for the next message)" in lines
+    assert "mcp__notes__read failed 2x with the same arguments -> breathe (offered)" in lines
+
+
+def test_the_waiting_slot_goes_to_compaction_then_failure_then_repeat(hooks, report):
+    for _ in range(3):
+        tool(hooks, SAME_CONTENT)
+    tool(hooks, NOT_FOUND, tool_name="web_search", args={"q": "x"})
+    tool(hooks, NOT_FOUND, tool_name="web_search", args={"q": "x"})  # failure displaces the repeat
+    compaction(hooks)  # compaction displaces the failure
+    assert "center" in next_message(hooks)["context"]
+    lines = report()
+    assert "read_file returned the same result 3x -> heal (not offered: superseded)" in lines
+    assert "web_search failed 2x with the same arguments -> breathe (not offered: superseded)" in lines
+
+
+def test_a_deferred_failure_note_counts_toward_the_cooldown(hooks, report):
+    tool(hooks, NOT_FOUND, tool_name="mcp__notes__read")
+    tool(hooks, NOT_FOUND, tool_name="mcp__notes__read")
+    tool(hooks, NOT_FOUND, turn_id="t-2")
+    assert tool(hooks, NOT_FOUND, turn_id="t-2") is None  # same kind, same session, within 300 s
+    assert "read_file failed 2x with the same arguments -> breathe (not offered: cooldown)" in report()
+
+
 # --- note text ------------------------------------------------------------------------
 
 def test_next_message_notes_are_short_and_attributed(plugin_package):
     next_turn = plugin_package.next_turn
     notes = [next_turn.build_compaction_note(), next_turn.build_repeat_note("read_file", 3),
              next_turn.build_repeat_note("mcp__" + "x" * 200, 999)]
+    for signal in plugin_package.triage.PRACTICE_FOR_SIGNAL:
+        notes += [next_turn.build_failure_note(signal, "mcp__notes__read", 2),
+                  next_turn.build_failure_note(signal, "mcp__" + "x" * 200, 10 ** 6)]
     for note in notes:
         assert len(note) <= 300, len(note)
         assert note.startswith("[first aid, from the agent-almanac-first-aid plugin, not the user] ")

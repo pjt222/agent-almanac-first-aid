@@ -171,8 +171,8 @@ def file_mutation_result_landed(tool_name: str, result: Any) -> bool:
 
 # _UNTRUSTED_TOOL_NAMES / _UNTRUSTED_TOOL_PREFIXES: results of these tools reach the model inside
 # an <untrusted_tool_result> block that says not to follow tool-invocation requests found in it.
-# A first-aid note there would sit inside that block and read like a prompt injection, so these
-# tools get none (user decision 2026-11-09); core's own loop warning still lands.
+# A first-aid note there would sit inside that block and read like a prompt injection, so for
+# these tools the note waits for the next user message instead (user decision 2026-11-09).
 UNTRUSTED_TOOL_NAMES = frozenset({"web_extract", "web_search"})
 UNTRUSTED_TOOL_PREFIXES = ("browser_", "mcp_")
 
@@ -341,7 +341,7 @@ class Crossing:
     tool_name: str
     count: int
     practice: str
-    outcome: str  # "offered" or "suppressed:<reason>"
+    outcome: str  # "offered", "queued:next-message" or "suppressed:<reason>"
     transformed_result: Optional[str] = None
 
 
@@ -361,7 +361,9 @@ class _TurnState:
     repeat_reported: set[Signature] = field(default_factory=set)
 
 
-RepeatCallback = Callable[[str, str, int], None]
+RepeatCallback = Callable[[str, str, int], None]  # (session_id, tool_name, count)
+DeferredCallback = Callable[[str, str, str, int], None]  # (session_id, signal, tool_name, count)
+QUEUED_OUTCOME = "queued:next-message"
 
 
 class Triage:
@@ -372,10 +374,12 @@ class Triage:
     """
 
     def __init__(self, config: TriageConfig = TriageConfig(), clock: Callable[[], float] = time.monotonic,
-                 on_repeat: Optional[RepeatCallback] = None) -> None:
+                 on_repeat: Optional[RepeatCallback] = None,
+                 on_deferred: Optional[DeferredCallback] = None) -> None:
         self.config = config
         self._clock = clock
         self._on_repeat = on_repeat
+        self._on_deferred = on_deferred
         self._lock = threading.Lock()
         self._turns: OrderedDict[tuple[str, str], _TurnState] = OrderedDict()
         self._last_offered: OrderedDict[str, dict[str, float]] = OrderedDict()
@@ -396,14 +400,20 @@ class Triage:
         throttled = failed and is_rate_limited(result)
         landed = not failed and file_mutation_result_landed(tool_name, result)
 
+        crossing: Optional[Crossing] = None
+        repeat_count = 0
         with self._lock:
             turn = self._turn_state(session_id, turn_id)
             if failed:
-                return self._count_failure(turn, tool_name, signature, throttled, result, session_id)
-            repeat_count = self._count_success(turn, tool_name, signature, landed, result)
+                crossing = self._count_failure(turn, tool_name, signature, throttled, result, session_id)
+            else:
+                repeat_count = self._count_success(turn, tool_name, signature, landed, result)
+        # Callbacks run after the lock is released, so the two modules' locks never nest.
+        if crossing is not None and crossing.outcome == QUEUED_OUTCOME and self._on_deferred is not None:
+            self._on_deferred(session_id, crossing.signal, tool_name, crossing.count)
         if repeat_count and self._on_repeat is not None:
             self._on_repeat(session_id, tool_name, repeat_count)
-        return None
+        return crossing
 
     def migrate_session(self, old_session_id: str, new_session_id: str) -> None:
         """Carry counts and cooldowns over when compaction rotates the session id
@@ -498,23 +508,28 @@ class Triage:
             # A throttled retry is the right move, and an annotated result would restart
             # core's identical-call count on a run its exact-args block does not bound.
             return crossing("suppressed:rate-limited")
-        if is_untrusted_tool(tool_name):
-            return crossing("suppressed:untrusted-result")
         if not self.config.notes_enabled:
             return crossing("suppressed:notes-disabled")
         now = self._clock()
         last = self._last_offered.get(session_id, {}).get(signal)
         if last is not None and now - last < self.config.cooldown_seconds:
             return crossing("suppressed:cooldown")
+        if is_untrusted_tool(tool_name):
+            # Not inside the untrusted-data wrapper: the note waits for the next user message.
+            self._mark_noted(turn, session_id, tool_name, signal, now)
+            return crossing(QUEUED_OUTCOME)
         if not isinstance(result, str):
             return crossing("suppressed:unsupported-result")
         transformed = annotate(tool_name, result, build_note(signal, tool_name, count))
         if transformed is None:
             return crossing("suppressed:unsupported-result")
+        self._mark_noted(turn, session_id, tool_name, signal, now)
+        return crossing("offered", transformed)
+
+    def _mark_noted(self, turn: _TurnState, session_id: str, tool_name: str, signal: str, now: float) -> None:
         turn.noted_tools.add(tool_name)
         offered = self._last_offered.setdefault(session_id, {})
         offered[signal] = now
         self._last_offered.move_to_end(session_id)
         while len(self._last_offered) > _MAX_SESSIONS:
             self._last_offered.popitem(last=False)
-        return crossing("offered", transformed)
