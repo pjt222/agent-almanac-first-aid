@@ -17,7 +17,8 @@ matching practice and how to load it. The agent decides whether to use it.
 - **Slash commands.** Hermes makes each practice a command, so you can hand one to the agent
   directly: `/agent-almanac-first-aid:breathe`.
 - **Failure-streak notes.** First aid counts failed tool results the way Hermes core's loop
-  guardrail does. On the call where core first warns, it adds one line to that failed result:
+  guardrail does. On the call where core first warns, it adds one line to that failed result
+  (for calls that run one after another; see the parallel-call caveat below):
 
   | Signal | Default threshold (core's) | Practice |
   |---|---|---|
@@ -123,7 +124,10 @@ section, so if you change core's thresholds, set these to match.
   `transform_tool_result`, such as timeouts, executor exceptions and tool-search bridge calls, are
   counted by core but not by first aid. For registry tools first aid sees the arguments after
   Hermes coerces their types, while core fingerprints them before, so calls differing only as
-  `"50"` and `50` can count as one streak here and as two in core.
+  `"50"` and `50` can count as one streak here and as two in core. When the agent issues several
+  tool calls at once and Hermes runs them in parallel, the hook sees the results in the order
+  they finish, while core counts them in call order, so a note can land on a different call than
+  core's warning, or on a call where core does not warn.
 - **Memory only.** The event log holds time, signal, tool name, count, practice and outcome per
   session, plus the logbook tool's short note (at most 160 characters, written by the agent).
   It never holds tool arguments or result bodies. It is bounded (200 events per session, 256
