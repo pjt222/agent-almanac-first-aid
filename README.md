@@ -40,13 +40,14 @@ matching practice and how to load it. The agent decides whether to use it.
   |---|---|---|
   | The conversation context was compacted (summarized) | any compaction that rewrites it | `center` |
   | A tool returned the same successful result for the same call | 3rd time in one turn | `heal` |
-  | A failure streak of a tool Hermes wraps as untrusted (`web_search`, `web_extract`, `browser_*`, `mcp_*`) | as for other tools | `breathe` or `redirect` |
+  | A failure streak of a tool Hermes wraps as untrusted (`web_search`, `browser_*`, `mcp_*`; `web_extract` and `browser_navigate` are failure-tolerant and get none) | as for other tools | `breathe` or `redirect` |
 
   Successful results themselves are never changed: core's repeat detection hashes them. Results
   of untrusted tools are not changed either: Hermes wraps them in a block that tells the model
   not to follow requests found inside it, so a note there would read like a prompt injection.
-  A run made of one message (`hermes chat -q`, cron) has no next message, so these notes never
-  arrive there. Tools whose output changes when repeated rarely trigger the repeat note:
+  A run made of one message (`hermes chat -q`, cron, a delegated subagent, which runs under its
+  own session id) has no next message, so these notes never arrive there, and a subagent's
+  events are logged under its own id, which the parent's `/first-aid` does not show. Tools whose output changes when repeated rarely trigger the repeat note:
   `read_file` answers an unchanged re-read with a short stub, and `search_files` can list the
   same files in a different order.
 - **Logbook tool.** `first_aid_log` lets the agent record the practice it applied and how it
@@ -65,16 +66,18 @@ Short notes, rarely. No note is added:
   `terminal`, `execute_code`, `process`, `process_manage`, `browser_navigate`, `web_extract`;
 - for results core classifies as rate-limited, where a retry after the wait is the right move;
 - for results it cannot annotate cleanly: JSON that is not an object, an object that already has
-  a `first_aid` key, non-text results, or a note that would change how core classifies the result;
+  a `first_aid` key, non-text results, or a note that would change how core classifies the result
+  (untrusted tools are not affected: their note never goes into the result);
 - for routine compaction (micro-compaction, tool-result pruning), which is logged only;
 - for more than one next-message note at a time: one waits per session, by priority compaction,
-  then failure, then repeat; a displaced note is logged as superseded.
+  then failure, then repeat. A waiting note counts toward the cooldown only once delivered, and
+  is dropped if a note of its kind reached the agent meanwhile.
 
-Offered and queued notes are recorded in the event log, and so are notes held back by the
-cooldown, the rate-limit rule, the settings, an unannotatable result or a superseding note,
-with the reason. "Offered" means first aid handed the note to Hermes: another plugin's
-transform, a turn another plugin vetoes, or a route that skips this context can still keep it
-from the agent.
+The event log records each decision with its reason: offered, queued for the next message,
+or not offered (cooldown, rate-limited, notes disabled, unannotatable result, superseded or
+refused by another waiting note). "Offered" means first aid handed the note to Hermes:
+another plugin's transform, a turn another plugin vetoes, or a route that skips this context
+can still keep it from the agent, and the cooldown has started all the same.
 
 ## Settings
 
@@ -93,14 +96,16 @@ plugins:
 ```
 
 The thresholds default to core's `tool_loop_guardrails` defaults. First aid cannot read that
-section, so if you change core's thresholds, set these to match.
+section, so if you change core's thresholds, set these to match, and if you turn core's loop
+warnings off, set `notes_enabled: false` too.
 
 ## What it touches
 
 - **It changes failed tool results, rarely.** On a threshold crossing it returns the failed
   result with the note added: a JSON object is re-serialized with one extra key, text gets one
   appended line. The original content stays intact, apart from what re-serializing JSON
-  normalizes (whitespace, escapes, duplicate keys). Successful results are never changed, and
+  normalizes (whitespace, escapes, duplicate keys, number formatting such as `1e3` to `1000.0`).
+  Successful results are never changed, and
   nothing is ever blocked.
 - **It reads every tool result.** The hook sees each tool result and its arguments, in memory, to
   classify the result and fingerprint the call. For counting it keeps sha256 hashes of the
@@ -113,11 +118,11 @@ section, so if you change core's thresholds, set these to match.
 - **Effect on core's stall notice and hard stops.** A first-aid note restarts core's
   identical-call count, so in a streak of identical failures its stall notice appears from the
   5th call instead of the 3rd; core's loop warnings are unchanged. With hard stops on (by
-  default in messaging-gateway and cron runs, off in the CLI), core halts right after the 5th
-  identical failure. With a note, the agent gets one more model request instead: if its 6th call
-  is identical, core's exact-arguments block refuses it and the turn halts; if it changes the
-  call, the turn goes on, and core still halts after 8 failures of the same tool. Rate-limited
-  results are never annotated.
+  default in messaging-gateway and cron runs, off in the CLI, TUI, Desktop, ACP, API server and
+  subagent runs), core halts right after the 5th identical failure. With a note, the agent gets
+  one more model request instead: if its 6th call is identical, core's exact-arguments block
+  refuses it and the turn halts; if it changes the call, the turn goes on, and core still halts
+  after 8 failures of the same tool. Rate-limited results are never annotated.
 - **It adds to the next user message, rarely.** A next-message note is appended to the user's
   message as context, never to the system prompt, so the prompt cache stays intact. Like any
   such context it stays in the transcript and is sent again with later requests until a
@@ -125,9 +130,10 @@ section, so if you change core's thresholds, set these to match.
   with the next user message, not in the same turn. Hermes routes that bypass `pre_llm_call`
   context, such as the Codex app-server route, may not deliver it.
 - **Background-review runs count as the session.** Hermes's background-review runs share the
-  user session's id, so their tool calls are counted with it: a streak there uses up that
-  session's cooldown, shows in `/first-aid` as if the main agent had it, and a repeat or an
-  untrusted tool's failure there can queue a note for the user's next message.
+  user session's id, and use the skill and memory tools plus `read_file` and `search_files`. So
+  a failure streak there can put a note into that run and start the session's cooldown, it
+  shows in `/first-aid` as if the main agent had it, and a repeat there can queue a note for
+  the user's next message.
 - **A best-effort mirror.** The failure classifier and the counting rules are copied from Hermes
   v0.22.7, not imported (those modules are not a public plugin API). Failures that never reach
   `transform_tool_result`, such as timeouts, executor exceptions and tool-search bridge calls, are
@@ -149,9 +155,10 @@ section, so if you change core's thresholds, set these to match.
 - **Context.** The kit adds eight rows to the agent's skill index (descriptions under 60
   characters each) and nine slash commands. A note is at most 300 characters, once per streak or
   event. Following one costs more: loading a practice adds its text (5.7 to 17.5 KB) to the
-  conversation, and the agent may re-read what it is working on. In the live compaction test the
-  turn after `/compress` grew the context from about 18.6K to 26K tokens. Notes also follow a
-  manual `/compress` (user decision 2026-11-09).
+  conversation, and the agent may re-read what it is working on: in one live test after
+  `/compress`, the agent loaded the 16.6 KB `center` practice and re-read three files before
+  answering the next question. Notes also follow a manual `/compress` (user decision
+  2026-11-09).
   The `first_aid_log` tool is a plugin tool, so Hermes's tool search (on by default) defers it.
   Measured with Hermes v0.22.7's own functions: where tool search is already on, as in a freshly
   created profile (Hermes defers several of its own tools), the tool adds one line of about 95
