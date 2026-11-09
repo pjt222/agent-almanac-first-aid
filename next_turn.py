@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from . import event_log, kit, logbook_tool
-from .triage import TriageConfig
+from .triage import TriageConfig, fit_note
 
 COMPACTION = "compaction"
 REPEAT = "repeat"
@@ -31,30 +31,37 @@ PRACTICE_FOR_SIGNAL = {COMPACTION: "center", REPEAT: "heal"}
 # are logged but draw no note.
 NOTED_COMPACTION_KINDS = frozenset({"summarize", "provider_native"})
 
-NOTE_PREFIX = "[first aid] "
-_TOOL_NAME_MAX_CHARS = 35
+# The note is appended to the user's message, so it says up front that the user did not write
+# it, as core labels its own injected notes (PR #2 review; user decision 2026-11-09).
+NOTE_PREFIX = f"[first aid, from the {kit.PLUGIN_NAME} plugin, not the user] "
 _MAX_SESSIONS = 64
+
+
+def _load_and_log(practice: str) -> str:
+    return (f"Load it with skill_view(\"{kit.qualified_name(practice)}\"), then log how it went with "
+            f"{logbook_tool.TOOL_NAME}.")
 
 
 def build_compaction_note() -> str:
     practice = PRACTICE_FOR_SIGNAL[COMPACTION]
     return (
-        f"{NOTE_PREFIX}Your conversation context was compacted since the last message. The "
-        f"{kit.PLUGIN_NAME} plugin suggests the {practice} practice: re-ground in the task before "
-        f"continuing. Load it with skill_view(\"{kit.qualified_name(practice)}\"), then log how it went "
-        f"with {logbook_tool.TOOL_NAME}."
+        f"{NOTE_PREFIX}Your context was compacted since the last message. Suggested practice: "
+        f"{practice}, to re-ground in the task first. {_load_and_log(practice)}"
     )
 
 
 def build_repeat_note(tool_name: str, count: int) -> str:
+    # "Earlier", not "last turn": a background-review run shares the session id, so the repeat
+    # may not have been the main agent's own.
     practice = PRACTICE_FOR_SIGNAL[REPEAT]
-    shown_tool = tool_name if len(tool_name) <= _TOOL_NAME_MAX_CHARS else tool_name[:_TOOL_NAME_MAX_CHARS - 3] + "..."
-    return (
-        f"{NOTE_PREFIX}Last turn, {shown_tool} returned the same result {count} times for one call. "
-        f"The {kit.PLUGIN_NAME} plugin suggests the {practice} practice: check for stale assumptions. "
-        f"Load it with skill_view(\"{kit.qualified_name(practice)}\"), then log how it went with "
-        f"{logbook_tool.TOOL_NAME}."
-    )
+
+    def render(shown_tool: str) -> str:
+        return (
+            f"{NOTE_PREFIX}Earlier, {shown_tool} gave the same result {count} times for one call. "
+            f"Suggested practice: {practice}, to check for stale assumptions. {_load_and_log(practice)}"
+        )
+
+    return fit_note(render, tool_name)
 
 
 @dataclass(frozen=True)

@@ -51,7 +51,8 @@ def test_third_identical_result_queues_one_heal_note(hooks, report):
         assert tool(hooks, SAME_CONTENT) is None  # successful results are never changed
     reply = next_message(hooks)
     assert set(reply) == {"context"}
-    assert reply["context"].startswith("[first aid] Last turn, read_file returned the same result")
+    assert reply["context"].startswith(
+        "[first aid, from the agent-almanac-first-aid plugin, not the user] Earlier, read_file gave the same result")
     assert "agent-almanac-first-aid:heal" in reply["context"]
     assert next_message(hooks) is None
     assert "read_file returned the same result 3x -> heal (offered)" in report()
@@ -185,6 +186,5 @@ def test_next_message_notes_are_short_and_attributed(plugin_package):
              next_turn.build_repeat_note("mcp__" + "x" * 200, 999)]
     for note in notes:
         assert len(note) <= 300, len(note)
-        assert note.startswith("[first aid] ")
-        assert "agent-almanac-first-aid plugin" in note
+        assert note.startswith("[first aid, from the agent-almanac-first-aid plugin, not the user] ")
         assert note.endswith("then log how it went with first_aid_log.")

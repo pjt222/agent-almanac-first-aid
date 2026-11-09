@@ -32,7 +32,8 @@ matching practice and how to load it. The agent decides whether to use it.
 
   A plain-text error gains the same sentence on a new line starting with `[first aid]`.
 - **Next-message notes.** Two signals have no failed result to carry a note, so their note is
-  added to the next user message instead (`pre_llm_call`), starting with `[first aid]`:
+  added to the next user message instead (`pre_llm_call`), opening with a label that says it
+  comes from this plugin, not from the user:
 
   | Signal | Default threshold | Practice |
   |---|---|---|
