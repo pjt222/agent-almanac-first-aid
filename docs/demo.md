@@ -64,19 +64,21 @@ Counted in test runs with the same model and Hermes version, in copies of the de
 | Three files in the wrong folder, without an opt-in sentence | 3 | 0 | 0 of 2 |
 | The same prompt with the opt-in sentence used in the video | 4 | 4 | 4 of 4 |
 | The same prompt with an earlier wording of the sentence ("If your first-aid kit offers a practice, use it and log how it went.") | 3 | 3 | 2 of 2 |
-| A retry of one missing file, with that earlier wording | 3 | 3 | 2 of 3 |
+| A different prompt (read one missing file and retry it once), with that earlier wording | 3 | 3 | 2 of 3 |
 
-In the first row the plugin's offer is recorded in the report of two runs; the third run ended
-before its report, so the offer there is inferred. Where the last column counts fewer runs, a
-run ended before the compaction. The sentence was reworded once, because with the earlier
-wording the agent also loaded a practice that had not been offered.
+In the first and third rows the plugin's offer is recorded in the report of two runs; the other
+run ended before its report, so the offer there is inferred. Where the last column counts fewer
+runs, a run ended right after `/compress`, before the next message. The sentence was reworded
+once, because with the earlier wording the agent also loaded a practice that had not been
+offered.
 
 With an earlier demo script (a retry of one missing file, no opt-in sentence), the agent loaded
 `center` in 5 of 22 completed takes and never loaded `breathe`, which was offered every time.
 
-So with this model, the agent took the plugin's offers in all ten test runs where the user had
-asked for that, and in none of the three where the user had not. The plugin never forces a
-practice: it offers, and the agent decides.
+So with this model, in the ten test runs where the prompt asked for it, the agent loaded the
+practice offered for the failures every time, and `center` in 8 of the 9 runs that reached the
+message after the compaction. In the three runs of the three-files prompt without the sentence
+it loaded no practice. The plugin never forces a practice: it offers, and the agent decides.
 
 ## Setup of the recording
 
